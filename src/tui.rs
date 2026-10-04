@@ -110,7 +110,18 @@ fn chat_rows(entry: &Entry, width: usize) -> Vec<String> {
         let mut cells = 0;
         for word in logical.split_inclusive(' ') {
             let word_cells = terminal_text_width(strip_terminal_ansi(word).trim_end());
-            if cells > hanging && cells + word_cells > content_width {
+            if cells >= hanging && word_cells > content_width.saturating_sub(hanging) {
+                if !line.is_empty() {
+                    output.push(line.trim_end().to_string());
+                }
+                // Whole word still overflows the available width; push it as one chunk so the
+                // terminal wraps it naturally instead of splitting mid-word like "P" / "DF".
+                output.push(format!("{}{style}{word}", " ".repeat(hanging)).trim_end().to_string());
+                line.clear();
+                cells = 0;
+                continue;
+            }
+            if cells >= hanging && cells + word_cells > content_width {
                 output.push(line.trim_end().to_string());
                 line = format!("{}{style}", " ".repeat(hanging));
                 cells = hanging;
@@ -446,6 +457,14 @@ impl State {
                     );
                     self.config = load_user_config().unwrap_or_default();
                 }
+                Some("persona_result") => {
+                    self.jobs = None;
+                    self.add(
+                        "Persona",
+                        event["text"].as_str().unwrap_or("Persona operation finished"),
+                    );
+                    self.config = load_user_config().unwrap_or_default();
+                }
                 Some("models_result") => {
                     self.jobs = None;
                     if let Some(items) = event["items"].as_array() {
@@ -756,8 +775,20 @@ impl State {
             "Plugins".to_string()
         } else if view == "languages" {
             "PDF OCR languages".to_string()
+        } else if let Some(plugin_name) = view.strip_prefix("details:") {
+            let display_name = plugins::CATALOG
+                .iter()
+                .find(|p| p.name == plugin_name)
+                .map(|p| p.display_name)
+                .unwrap_or(plugin_name);
+            format!("Plugin details · {display_name}")
         } else {
-            format!("Plugin · {view}")
+            let display_name = plugins::CATALOG
+                .iter()
+                .find(|p| p.name == view)
+                .map(|p| p.display_name)
+                .unwrap_or(view);
+            format!("Plugin · {display_name}")
         };
         let choices = plugins::menu_entries(&skills_base()?, view, &self.plugin_languages)?
             .into_iter()
@@ -799,10 +830,10 @@ impl State {
                     }
                 }
                 Ok(output) => {
-                    json!({"type":if command=="models"{"models_result"}else if command=="plugins"{"plugins_result"}else{"skills_result"},"text":format!("{}{}",String::from_utf8_lossy(&output.stdout),String::from_utf8_lossy(&output.stderr)),"error":String::from_utf8_lossy(&output.stderr)})
+                    json!({"type":if command=="models"{"models_result"}else if command=="plugins"{"plugins_result"}else if command=="persona"{"persona_result"}else{"skills_result"},"text":format!("{}{}",String::from_utf8_lossy(&output.stdout),String::from_utf8_lossy(&output.stderr)),"error":String::from_utf8_lossy(&output.stderr)})
                 }
                 Err(error) => {
-                    json!({"type":if command=="models"{"models_result"}else if command=="plugins"{"plugins_result"}else{"skills_result"},"text":error.to_string(),"error":error.to_string()})
+                    json!({"type":if command=="models"{"models_result"}else if command=="plugins"{"plugins_result"}else if command=="persona"{"persona_result"}else{"skills_result"},"text":error.to_string(),"error":error.to_string()})
                 }
             };
             let _ = sender.send(event);
@@ -826,7 +857,7 @@ impl State {
             },
             ":reasoning" if argument.is_empty()=>self.choices("Reasoning",["default","low","medium","high"].into_iter().map(|value|(value.to_string(),format!(":reasoning {value}"))).collect()),
             ":model" | ":models" if argument.is_empty()=>self.job("models",vec!["--format".into(),"json".into()])?,
-            ":setting" | ":settings"=>self.choices("Settings",vec![(format!("Agent Mode · {}",configured_agent_mode(&self.config)),":mode".into()),("Model".into(),":model".into()),(format!("Automatic approval · {}",self.config.auto_approve_actions.unwrap_or(false)),":approval".into()),("Reasoning".into(),":reasoning".into()),("Theme".into(),":theme".into()),("Skills".into(),":skills".into()),("Plugins".into(),":plugins".into()),("Snippets".into(),":snippets".into()),("IDE".into(),":ide".into()),("Proxy".into(),":proxy".into())]),
+            ":setting" | ":settings"=>self.choices("Settings",vec![(format!("Agent Mode · {}",configured_agent_mode(&self.config)),":mode".into()),("Model".into(),":model".into()),(format!("Automatic approval · {}",self.config.auto_approve_actions.unwrap_or(false)),":approval".into()),("Reasoning".into(),":reasoning".into()),("Theme".into(),":theme".into()),("Persona".into(),":persona".into()),("Skills".into(),":skills".into()),("Plugins".into(),":plugins".into()),("Snippets".into(),":snippets".into()),("IDE".into(),":ide".into()),("Proxy".into(),":proxy".into())]),
             ":proxy" if argument.is_empty()=>{ self.input=":proxy ".into();self.cursor=self.input.chars().count();self.notice="Enter a proxy URL, or :proxy off".into(); },
             ":proxy"=>{self.config.proxy_url=if argument=="off"{None}else{let _=reqwest::Proxy::all(argument).map_err(|e|format!("invalid proxy: {e}"))?;Some(argument.into())};save_user_config(&self.config)?;self.notice="Proxy updated for subsequent requests".into();},
             ":provider"=>{self.choices("Saved providers",self.config.providers.iter().map(|provider|(format!("{} · {}",provider.name,safe_proxy_label(&provider.base_url)),format!(":provider-info {}",provider.id))).collect());},
@@ -904,6 +935,63 @@ impl State {
             }
             ":ide" => {
                 self.job("ide", argument.split_whitespace().map(str::to_string).collect())?;
+            }
+            ":persona" => {
+                if argument.is_empty() {
+                    let mut choices = Vec::new();
+                    let current_preset = self.config.persona.preset.as_deref().unwrap_or("");
+                    for preset in persona::PRESETS {
+                        let active = current_preset == preset.id
+                            || (current_preset.is_empty() && self.config.persona.name.as_deref() == Some(preset.name));
+                        let mark = if active { "✓ " } else { "  " };
+                        choices.push((
+                            format!("{mark}{:<16} · {}", preset.title, preset.description),
+                            format!(":persona preset {}", preset.id),
+                        ));
+                    }
+                    choices.push(("  Custom Persona    · Set custom name & rules".into(), ":persona-name".into()));
+                    choices.push(("  Add Instruction   · Append rule to current persona".into(), ":persona-add".into()));
+                    let gender_str = self.config.persona.gender.as_deref().unwrap_or("unspecified");
+                    choices.push((format!("  Gender & Pronouns · {gender_str} (female, male, neutral)"), ":persona-gender".into()));
+                    choices.push(("  Clear Rules       · Remove all custom instructions".into(), ":persona clear".into()));
+                    choices.push(("  Reset to Default  · Revert to NioAI".into(), ":persona reset".into()));
+
+                    let active_title = self.config.persona.preset.as_deref()
+                        .and_then(persona::find_preset)
+                        .map(|p| p.title)
+                        .unwrap_or_else(|| self.config.persona.display_name());
+                    let count = self.config.persona.instructions.len();
+                    self.choices(
+                        &format!("Persona Presets · Active: {active_title} ({count} rules) · Enter selects · Esc"),
+                        choices,
+                    );
+                } else {
+                    let parts = argument.split_whitespace().map(str::to_string).collect::<Vec<_>>();
+                    let msg = persona::apply_command(&mut self.config.persona, &parts)?;
+                    save_user_config(&self.config)?;
+                    self.notice = msg;
+                }
+            }
+            ":persona-name" => {
+                self.input = ":persona name ".into();
+                self.cursor = self.input.chars().count();
+                self.notice = "Enter persona name (e.g. Alex or Riley):".into();
+            }
+            ":persona-gender" => {
+                self.choices(
+                    "Persona Gender & Pronouns · Enter selects · Esc",
+                    vec![
+                        ("  Female     · She/Her pronouns and female persona tone".into(), ":persona gender female".into()),
+                        ("  Male       · He/Him pronouns and male persona tone".into(), ":persona gender male".into()),
+                        ("  Non-Binary · They/Them pronouns and neutral persona tone".into(), ":persona gender non-binary".into()),
+                        ("  Reset      · Unspecified / default neutral".into(), ":persona gender reset".into()),
+                    ],
+                );
+            }
+            ":persona-add" => {
+                self.input = ":persona add ".into();
+                self.cursor = self.input.chars().count();
+                self.notice = "Enter persona instruction (use ';' for multiple):".into();
             }
             ":continue" => { let prompt="Continue the unfinished task using the saved history and current files.".to_string(); if self.busy {enqueue_message(prompt)?;} else {self.start(options,prompt)?;} }
             _ => return Err("Use :help. TUI settings accept values: :mode build, :model SELECTOR, :theme ocean, :reasoning high.".into()),

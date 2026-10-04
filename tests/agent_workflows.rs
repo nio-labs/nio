@@ -879,3 +879,54 @@ fn pdf_attachment_missing_ocr_languages_reaches_model_with_the_error() {
     assert!(attached.contains("ask which languages"));
     assert!(attached.contains("install_plugin"));
 }
+
+#[test]
+fn persona_aligns_system_prompt_and_identity() {
+    let project = Project::new();
+    let mut cmd1 = Command::new(env!("CARGO_BIN_EXE_nio"));
+    cmd1.env("NIO_CONFIG", &project.config)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .args(["persona", "name", "I'm Jarvis"]);
+    let out1 = finish(cmd1.spawn().unwrap());
+    assert!(out1.status.success());
+
+    let mut cmd2 = Command::new(env!("CARGO_BIN_EXE_nio"));
+    cmd2.env("NIO_CONFIG", &project.config)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .args(["persona", "add", "Address the user as Boss; Speak in witty British humor"]);
+    let out2 = finish(cmd2.spawn().unwrap());
+    assert!(out2.status.success());
+
+    let mut cmd3 = Command::new(env!("CARGO_BIN_EXE_nio"));
+    cmd3.env("NIO_CONFIG", &project.config)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .args(["persona"]);
+    let out = finish(cmd3.spawn().unwrap());
+    assert!(out.status.success());
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("Jarvis"));
+    assert!(stdout.contains("Address the user as Boss"));
+    assert!(stdout.contains("Speak in witty British humor"));
+
+    let mut provider = Provider::new(vec![done()]);
+    let mut run_cmd = project.command_with_prompt(&provider, "ask", false, "Who are you?");
+    assert_success(&finish(run_cmd.spawn().unwrap()));
+    provider.finish();
+
+    let requests = provider.requests.lock().unwrap();
+    let system_msg = requests[0]["messages"].as_array().unwrap()[0]["content"]
+        .as_str()
+        .unwrap();
+    assert!(system_msg.contains("You are Jarvis"));
+    assert!(system_msg.contains("identify as \"I'm Jarvis\""));
+    assert!(system_msg.contains("Address the user as Boss"));
+    assert!(system_msg.contains("Speak in witty British humor"));
+    assert!(system_msg.contains("Persona Instructions"));
+}
+

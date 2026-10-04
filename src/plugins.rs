@@ -563,22 +563,22 @@ pub fn menu_entries(
         let mut entries = Vec::new();
         // 1. Installed plugins
         for plugin in &installed {
-            let detail = format!(
-                "{} · {}",
-                if plugin.enabled {
-                    "Enabled"
-                } else {
-                    "Disabled"
-                },
-                plugin.manifest.description
-            );
+            let cat = CATALOG.iter().find(|c| c.name == plugin.manifest.name);
+            let display_name = if plugin.manifest.name == "pdf" {
+                "PDF"
+            } else if let Some(cat) = cat {
+                cat.display_name
+            } else {
+                &plugin.manifest.name
+            };
+            let status = if plugin.enabled {
+                "Installed"
+            } else {
+                "Installed (Disabled)"
+            };
             entries.push(menu_entry(
-                if plugin.manifest.name == "pdf" {
-                    "PDF"
-                } else {
-                    &plugin.manifest.name
-                },
-                detail,
+                display_name,
+                status,
                 plugin.enabled,
                 &["menu", &plugin.manifest.name],
             ));
@@ -586,19 +586,113 @@ pub fn menu_entries(
         // 2. Available catalog plugins
         for cat in CATALOG {
             if !installed.iter().any(|p| p.manifest.name == cat.name) {
-                let detail = if cat.name == "pdf" {
-                    "Not installed · PDF text and optional OCR".to_string()
-                } else {
-                    format!("Available · {}", cat.description)
-                };
                 entries.push(menu_entry(
                     cat.display_name,
-                    detail,
+                    "Not installed",
                     false,
                     &["menu", cat.name],
                 ));
             }
         }
+        return Ok(entries);
+    }
+    if let Some(plugin_name) = view.strip_prefix("details:") {
+        let cat = CATALOG.iter().find(|p| p.name == plugin_name);
+        let plugin = installed.iter().find(|p| p.manifest.name == plugin_name);
+        if cat.is_none() && plugin.is_none() {
+            return Err("plugin not found".into());
+        }
+        let display_name = if let Some(cat) = cat {
+            cat.display_name
+        } else if let Some(plugin) = plugin {
+            &plugin.manifest.name
+        } else {
+            plugin_name
+        };
+        let description = if let Some(cat) = cat {
+            cat.description
+        } else if let Some(plugin) = plugin {
+            &plugin.manifest.description
+        } else {
+            ""
+        };
+        let extensions = if let Some(cat) = cat {
+            cat.extensions
+                .iter()
+                .map(|e| format!(".{e}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        } else if let Some(plugin) = plugin {
+            plugin
+                .manifest
+                .extensions
+                .iter()
+                .map(|e| format!(".{e}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        } else {
+            String::new()
+        };
+        let binary = if let Some(cat) = cat {
+            cat.binary
+        } else if let Some(plugin) = plugin {
+            &plugin.manifest.executable
+        } else {
+            ""
+        };
+        let tags = if let Some(cat) = cat {
+            cat.tags.join(", ")
+        } else {
+            "plugin".into()
+        };
+        let license = if let Some(cat) = cat {
+            cat.license
+        } else {
+            "Unknown"
+        };
+        let status = if let Some(plugin) = plugin {
+            format!(
+                "Installed (v{}) · {}",
+                plugin.manifest.version,
+                if plugin.enabled { "Enabled" } else { "Disabled" }
+            )
+        } else {
+            "Not installed · Available in catalog".to_string()
+        };
+
+        let show_cmd = ["show-details", plugin_name];
+        let mut entries = Vec::new();
+        entries.push(menu_entry("Description", description, false, &show_cmd));
+        entries.push(menu_entry(
+            "Status",
+            status,
+            plugin.map(|p| p.enabled).unwrap_or(false),
+            &show_cmd,
+        ));
+        entries.push(menu_entry("Extensions", extensions, false, &show_cmd));
+        entries.push(menu_entry("Binary", binary, false, &show_cmd));
+        entries.push(menu_entry("Tags", tags, false, &show_cmd));
+        entries.push(menu_entry("License", license, false, &show_cmd));
+        if plugin_name == "pdf" {
+            if let Some(plugin) = plugin {
+                let langs = if plugin.languages.is_empty() {
+                    "None (text extraction only)".to_string()
+                } else {
+                    format!(
+                        "{} installed ({})",
+                        plugin.languages.len(),
+                        plugin.languages.join(", ")
+                    )
+                };
+                entries.push(menu_entry("OCR Languages", langs, false, &show_cmd));
+            }
+        }
+        entries.push(menu_entry(
+            "Back",
+            format!("Return to {display_name}"),
+            false,
+            &["menu", plugin_name],
+        ));
         return Ok(entries);
     }
     if view == "languages" {
@@ -690,7 +784,12 @@ pub fn menu_entries(
         return Ok(entries);
     }
     let plugin = installed.iter().find(|p| p.manifest.name == view);
+    let cat = CATALOG.iter().find(|p| p.name == view);
+    if plugin.is_none() && cat.is_none() {
+        return Err("plugin is not installed".into());
+    }
     let mut entries = Vec::new();
+
     if view == "pdf" {
         if plugin.is_none() {
             entries.push(menu_entry(
@@ -702,7 +801,11 @@ pub fn menu_entries(
         }
         entries.push(menu_entry(
             "Choose OCR languages",
-            "Select language packs to install",
+            if plugin.is_none() {
+                "Select language packs to install"
+            } else {
+                "Manage installed OCR language packs"
+            },
             false,
             &["menu", "languages"],
         ));
@@ -720,12 +823,18 @@ pub fn menu_entries(
             &[action, view],
         ));
         entries.push(menu_entry(
+            "Details",
+            "View full description and plugin info",
+            false,
+            &["show-details", view],
+        ));
+        entries.push(menu_entry(
             "Remove plugin",
             "Remove package and downloaded models",
             false,
             &["confirm-remove", view],
         ));
-    } else if let Some(cat) = CATALOG.iter().find(|p| p.name == view) {
+    } else if let Some(cat) = cat {
         if cat.name != "pdf" {
             entries.push(menu_entry(
                 format!("Install {} plugin", cat.display_name),
@@ -736,18 +845,12 @@ pub fn menu_entries(
         }
         entries.push(menu_entry(
             "Details",
-            format!(
-                "Extensions: .{} · Tags: {}",
-                cat.extensions.join(", ."),
-                cat.tags.join(", ")
-            ),
+            "View full description and plugin info",
             false,
-            &["menu", ""],
+            &["show-details", view],
         ));
-    } else {
-        return Err("plugin is not installed".into());
     }
-    entries.push(menu_entry("Back", "Return to plugins", false, &["menu"]));
+    entries.push(menu_entry("Back", "Return to plugins", false, &["menu", ""]));
     Ok(entries)
 }
 
@@ -1396,6 +1499,12 @@ mod tests {
         assert!(top[0].detail.contains("Not installed"));
         let pdf = menu_entries(&base, "pdf", &[]).unwrap();
         assert!(pdf.iter().any(|e| e.command == ["install", "pdf"]));
+        assert!(pdf.iter().any(|e| e.label == "Details" && e.command == ["show-details", "pdf"]));
+        let details_uninstalled = menu_entries(&base, "details:pdf", &[]).unwrap();
+        assert!(details_uninstalled.iter().any(|e| e.label == "Description"));
+        assert!(details_uninstalled.iter().any(|e| e.label == "Status" && e.detail.contains("Not installed")));
+        assert!(details_uninstalled.iter().any(|e| e.label == "Extensions" && e.detail.contains(".pdf")));
+        assert!(details_uninstalled.iter().any(|e| e.label == "Back" && e.command == ["menu", "pdf"]));
         let languages = menu_entries(&base, "languages", &["eng".into(), "khm".into()]).unwrap();
         assert_eq!(
             languages[0].label,
@@ -1435,6 +1544,10 @@ mod tests {
         let installed = menu_entries(&base, "pdf", &[]).unwrap();
         assert!(!installed.iter().any(|e| e.command == ["install", "pdf"]));
         assert!(installed.iter().any(|e| e.command == ["disable", "pdf"]));
+        assert!(installed.iter().any(|e| e.label == "Details" && e.command == ["show-details", "pdf"]));
+        let details_installed = menu_entries(&base, "details:pdf", &[]).unwrap();
+        assert!(details_installed.iter().any(|e| e.label == "Status" && e.detail.contains("Enabled")));
+        assert!(details_installed.iter().any(|e| e.label == "OCR Languages" && e.detail.contains("eng")));
         let languages = menu_entries(&base, "languages", &["eng".into()]).unwrap();
         assert_eq!(languages[0].label, "Install selected OCR languages");
         assert!(languages[0].detail.contains("0.0 MiB"));

@@ -149,7 +149,26 @@ struct Live {
     formatter: Option<MarkdownFormatter>,
     screen: InputRenderState,
     approval: Option<ApprovalPrompt>,
+    needs_prefix_newline: bool,
 }
+
+pub(crate) fn fix_trailing_colon(text: &str) -> String {
+    let plain = strip_terminal_ansi(text);
+    let trimmed_plain = plain.trim_end();
+    if trimmed_plain.ends_with(':') {
+        if let Some(colon_pos) = text.rfind(':') {
+            let after_colon = &text[colon_pos + 1..];
+            if strip_terminal_ansi(after_colon).trim().is_empty() {
+                let mut fixed = text[..colon_pos].to_string();
+                fixed.push('.');
+                fixed.push_str(after_colon);
+                return fixed;
+            }
+        }
+    }
+    text.to_string()
+}
+
 impl Live {
     fn commit(&mut self, text: &str) -> Result<(), String> {
         let mut stdout = io::stdout();
@@ -162,11 +181,15 @@ impl Live {
         .map_err(|e| e.to_string())?;
         stdout.flush().map_err(|e| e.to_string())
     }
-    fn flush_partial(&mut self) -> Result<(), String> {
+    fn flush_partial(&mut self, blank_line_after: bool) -> Result<(), String> {
         if let Some(mut formatter) = self.formatter.take() {
             let started = formatter.output_started;
             let tail = formatter.finish();
             if !started && !tail.is_empty() {
+                if self.needs_prefix_newline {
+                    self.pending.push_str("\r\n");
+                    self.needs_prefix_newline = false;
+                }
                 self.pending.push_str(ASSISTANT_PREFIX);
             }
             self.pending.push_str(
@@ -175,7 +198,13 @@ impl Live {
         }
         if !self.pending.is_empty() {
             let pending = std::mem::take(&mut self.pending);
-            self.commit(&format!("{pending}\r\n"))?;
+            let trimmed = pending.trim_end_matches(|c: char| c == '\r' || c == '\n' || c == ' ');
+            if !trimmed.is_empty() {
+                let fixed = fix_trailing_colon(trimmed);
+                let suffix = if blank_line_after { "\r\n\r\n" } else { "\r\n" };
+                self.commit(&format!("{fixed}{suffix}"))?;
+                self.needs_prefix_newline = true;
+            }
         }
         Ok(())
     }
@@ -187,15 +216,22 @@ impl Live {
         let started = formatter.output_started;
         let formatted = formatter.push(text);
         if !started && !formatted.is_empty() {
+            if self.needs_prefix_newline {
+                self.pending.push_str("\r\n");
+                self.needs_prefix_newline = false;
+            }
             self.pending.push_str(ASSISTANT_PREFIX);
         }
         self.pending.push_str(
             &String::from_utf8(indent_response_lines(&formatted, "\r\n")).unwrap_or_default(),
         );
-        if let Some(end) = self.pending.rfind('\n') {
-            let complete = self.pending[..=end].to_string();
-            self.pending.drain(..=end);
-            self.commit(&complete)?;
+        let last_non_ws = self.pending.rfind(|c: char| !c.is_whitespace());
+        if let Some(last_pos) = last_non_ws {
+            if let Some(end) = self.pending[..last_pos].rfind('\n') {
+                let complete = self.pending[..=end].to_string();
+                self.pending.drain(..=end);
+                self.commit(&complete)?;
+            }
         }
         Ok(())
     }
@@ -651,6 +687,7 @@ pub async fn run(
         formatter: None,
         screen: InputRenderState::default(),
         approval: None,
+        needs_prefix_newline: false,
     };
     write!(io::stdout(), "\r\n").map_err(|e| e.to_string())?;
     live.draw()?;
@@ -682,7 +719,7 @@ pub async fn run(
                     let part = &event["part"];
                     let state = part["state"]["status"].as_str().unwrap_or_default();
                     if matches!(state, "completed" | "error") {
-                        live.flush_partial()?;
+                        live.flush_partial(true)?;
                         let title = part["state"]["title"].as_str().unwrap_or("tool");
                         if title.trim() == "ask_user" || title.trim() == "request_build_mode" {
                             continue;
@@ -698,6 +735,7 @@ pub async fn run(
                                     .map(|(width, _)| width as usize)
                                     .unwrap_or(80),
                             ))?;
+                            live.needs_prefix_newline = true;
                         } else {
                             live.commit(&format!(
                                 "{} {title} \x1b[2m({:.1}s)\x1b[0m{}\r\n",
@@ -719,10 +757,12 @@ pub async fn run(
                                     String::new()
                                 }
                             ))?;
+                            live.needs_prefix_newline = true;
                         }
                     }
                 }
                 Some("approval") => {
+                    live.flush_partial(true)?;
                     let details = event["preview"].as_str().map(str::to_string);
                     live.approval = Some(ApprovalPrompt {
                         action: event["action"].as_str().unwrap_or("action").into(),
@@ -732,7 +772,7 @@ pub async fn run(
                     });
                 }
                 Some("question") => {
-                    live.flush_partial()?;
+                    live.flush_partial(true)?;
                     live.clear()?;
                     guard.release();
                     let answer_result = interactive_question(&event["arguments"]);
@@ -746,7 +786,7 @@ pub async fn run(
                 Some("inline_complete") => {
                     elapsed = started.elapsed();
                     *history = event["history"].as_array().cloned().unwrap_or_default();
-                    live.flush_partial()?;
+                    live.flush_partial(false)?;
                     let error = event["error"].as_str().map(str::to_string);
                     let suggestions = event["suggestions"]
                         .as_array()

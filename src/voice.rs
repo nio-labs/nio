@@ -1,4 +1,5 @@
 //! Voice recording and speech-to-text / multimodal audio subsystem for NioAI.
+#![allow(dead_code)]
 use base64::Engine as _;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use crossterm::terminal;

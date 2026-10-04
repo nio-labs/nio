@@ -11,6 +11,7 @@
   <a href="#screenshots">Screenshots</a> •
   <a href="#features">Features</a> •
   <a href="#installation">Installation</a> •
+  <a href="#custom-persona--presets">Persona & Presets</a> •
   <a href="#key-commands">Key Commands</a> •
   <a href="#privacy">Privacy</a>
 </p>
@@ -21,7 +22,8 @@
 
 - ⚡ **Blazing Fast Startup (<10ms)**: Built in native Rust. Starts instantly in your terminal without the startup lag or runtime tax of Python, Node.js, or Electron.
 - 🪶 **Ultra-Lightweight Footprint**: Consumes under ~20MB of RAM. Keep it running in the background without draining your battery or hogging CPU.
-- 🎙️ **Voice & Multimodal Audio Input**: Speak naturally to your agent with `:voice`. Records microphone audio natively and sends transcribed or raw multimodal audio to LLMs.
+- 🎭 **Custom Persona & Built-In Presets**: Give Nio an identity, custom name, gender & pronouns, and tailored behavioral guidelines (`:persona`). Includes 10 built-in presets (BFF, Partner, Ex, Senior Architect, Staff Rustacean, etc.) with an interactive picker.
+- 📎 **Multimodal Audio & Document Support**: Ingest audio files, PDFs, spreadsheets, and schemas directly into your context.
 - 🛡️ **Atomic Undo & Local Reliability**: Every file change is backed by an atomic journal with instant rollback (`:undo`). Never lose code to an unexpected model hallucination.
 - 🔌 **Universal Provider Support & Failover**: Works out of the box with any OpenAI-compatible provider (OpenRouter, Groq, Cerebras, Claude, OpenAI, Gemini, DeepSeek, or local Ollama). Automatically offers failover when a provider drops.
 - 🎨 **Dual Terminal Interface**: Use the distraction-free inline CLI with non-blocking message queuing (`queue>`) or switch to the full-screen, themeable terminal TUI (`nio --tui`).
@@ -73,6 +75,10 @@ Full-screen TUI with theme support and command palette:
 
 ![NioAI full-screen TUI](screenshots/tui.png)
 
+Interactive Persona selector with built-in presets:
+
+![NioAI Persona selector](screenshots/persona.png)
+
 ---
 
 ## Installation
@@ -90,7 +96,7 @@ irm https://raw.githubusercontent.com/nio-labs/nio/main/install.ps1 | iex
 Custom installation options:
 ```sh
 # Pin a specific release
-curl -fsSL https://raw.githubusercontent.com/nio-labs/nio/main/install.sh | NIO_VERSION=v0.3.3 bash
+curl -fsSL https://raw.githubusercontent.com/nio-labs/nio/main/install.sh | NIO_VERSION=v0.3.4 bash
 
 # Custom installation directory
 curl -fsSL https://raw.githubusercontent.com/nio-labs/nio/main/install.sh | NIO_INSTALL_DIR="$HOME/.local/bin" bash
@@ -128,9 +134,14 @@ cargo build --release
     <td align="left" valign="top"><strong>Deep Project Tools</strong><br><br>Search code with regex, find files by glob, read documents, inspect git diffs, and run approved shell commands.</td>
   </tr>
   <tr>
+    <td align="left" valign="top"><strong>Custom Persona & Presets</strong><br><br>Select from 10 built-in presets or configure custom names, gender/pronouns, and instructions with <code>:persona</code>.</td>
     <td align="left" valign="top"><strong>Non-blocking queue</strong><br><br>Queue follow-up prompts while Nio is generating answers or editing files.</td>
-    <td align="left" valign="top"><strong>Voice & Multimodal Audio</strong><br><br>Speak directly into your microphone with <code>:voice</code> for instant audio transcription and multimodal querying.</td>
+    <td align="left" valign="top"><strong>Multi-file Attachments</strong><br><br>Attach images, audio recordings, PDFs, spreadsheets, and documents seamlessly with <code>-a</code>.</td>
+  </tr>
+  <tr>
     <td align="left" valign="top"><strong>Atomic Undo Journaling</strong><br><br>Revert file edits made by the agent across current or previous runs with instant atomic rollbacks.</td>
+    <td align="left" valign="top"><strong>GitHub Skills & Plugins</strong><br><br>Extend Nio with GitHub-based domain skills and optional standalone plugins (SQLite, DuckDB, AST-grep, etc.).</td>
+    <td align="left" valign="top"><strong>Dual Interface</strong><br><br>Switch seamlessly between the lightweight inline CLI and the rich, themeable full-screen TUI (<code>nio --tui</code>).</td>
   </tr>
 </table>
 
@@ -249,7 +260,6 @@ Nio provides an interactive command palette in both the inline CLI and full-scre
 
 | Command | Action |
 |---|---|
-| `:voice` | Record microphone audio and send transcribed/multimodal audio to the model |
 | `:mode` | Switch autonomy mode (`ask`, `plan`, `build`) |
 | `:models` | Browse, search, and switch models and providers |
 | `:undo` | Revert the last agent file change with atomic rollback |
@@ -258,10 +268,57 @@ Nio provides an interactive command palette in both the inline CLI and full-scre
 | `:ide` | Manage background NioDE IDE language services daemon |
 | `:plugins` | Install and configure optional file readers (PDF, SQLite, DuckDB, etc.) |
 | `:skills` | Browse, add, and manage GitHub-based agent skills |
+| `:persona` | Customize assistant identity, presets (BFF, Partner, Ex, etc.), and rules |
 | `:queue` | Inspect and edit queued background messages |
 | `:settings` | Configure theme, reasoning effort, auto-approval, and mouse |
 | `:clear` | Clear the current conversation context |
 | `:quit` | Save session and exit |
+
+## Custom Persona & Presets
+
+Nio includes an interactive persona selector (identical to the provider and plugin menus) and comes with **10 built-in presets**, plus full support for custom names, gender & pronouns, and behavioral rules:
+
+<p align="center">
+  <img src="screenshots/persona.png" alt="NioAI Persona Selector" width="750">
+</p>
+
+```sh
+# Launch the interactive persona selector
+nio persona
+
+# Switch directly to any preset (with optional gender)
+nio persona bff          # or: nio persona preset bff
+nio persona partner --gender female     # girlfriend persona with she/her pronouns
+nio persona partner --gender male       # boyfriend persona with he/him pronouns
+nio persona ex
+nio persona rustacean
+
+# Configure custom gender, name, or add rules
+nio persona gender female               # female, male, non-binary, or reset
+nio persona name "Riley"
+nio persona add "Prioritize clean async Rust; Keep banter friendly and supportive"
+
+# Inspect or reset
+nio persona status
+nio persona reset
+```
+
+### Built-in Presets
+
+| Preset | Role & Personality |
+|---|---|
+| `bff` | Loyal, supportive ride-or-die coding best friend (Alex) with fun banter |
+| `partner` | Loving, caring companion (Riley) who encourages you and reminds you to rest & hydrate |
+| `ex` | Witty, slightly sarcastic perfectionist (Taylor) who pushes you to write spotless code |
+| `architect` | Principled software architect focused on scalability, SOLID, and design patterns |
+| `rustacean` | Deep systems programming expert (Ferris) obsessed with zero-cost abstractions & lifetimes |
+| `minimalist` | Pure high-density code and diffs with zero filler or pleasantries |
+| `security` | Paranoid white-hat security auditor (Sentinel) checking every line for vulnerabilities |
+| `devops` | Reliability-first engineer (Ops) focused on observability, containers, and resilience |
+| `junior` | Enthusiastic, curious learner (Pip) who explains tricky concepts simply |
+| `tutor` | Socratic tutor (Mentor) prompting critical thinking and deep conceptual mastery |
+
+The interactive selector is accessible in the terminal with `nio persona`, inside interactive sessions via `:persona` (or `/persona`), and directly within the TUI `:settings` menu. Persona identities and instructions are strictly enforced in the system prompt and reflected in the session header.
 
 Preset providers include OpenRouter, Groq, Cerebras, Gemini, DeepSeek, Together AI, Fireworks, Mistral, SiliconFlow, Anthropic Claude, and OpenAI Codex.
 
