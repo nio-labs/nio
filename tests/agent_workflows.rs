@@ -897,7 +897,11 @@ fn persona_aligns_system_prompt_and_identity() {
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .args(["persona", "add", "Address the user as Boss; Speak in witty British humor"]);
+        .args([
+            "persona",
+            "add",
+            "Address the user as Boss; Speak in witty British humor",
+        ]);
     let out2 = finish(cmd2.spawn().unwrap());
     assert!(out2.status.success());
 
@@ -929,4 +933,3 @@ fn persona_aligns_system_prompt_and_identity() {
     assert!(system_msg.contains("Speak in witty British humor"));
     assert!(system_msg.contains("Persona Instructions"));
 }
-

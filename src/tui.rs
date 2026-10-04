@@ -116,7 +116,11 @@ fn chat_rows(entry: &Entry, width: usize) -> Vec<String> {
                 }
                 // Whole word still overflows the available width; push it as one chunk so the
                 // terminal wraps it naturally instead of splitting mid-word like "P" / "DF".
-                output.push(format!("{}{style}{word}", " ".repeat(hanging)).trim_end().to_string());
+                output.push(
+                    format!("{}{style}{word}", " ".repeat(hanging))
+                        .trim_end()
+                        .to_string(),
+                );
                 line.clear();
                 cells = 0;
                 continue;
@@ -461,7 +465,9 @@ impl State {
                     self.jobs = None;
                     self.add(
                         "Persona",
-                        event["text"].as_str().unwrap_or("Persona operation finished"),
+                        event["text"]
+                            .as_str()
+                            .unwrap_or("Persona operation finished"),
                     );
                     self.config = load_user_config().unwrap_or_default();
                 }

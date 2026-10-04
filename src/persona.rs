@@ -239,9 +239,15 @@ pub fn format_persona_prompt(persona: &PersonaConfig) -> (String, String) {
 
     if let Some(gender) = persona.gender.as_deref() {
         let gender_desc = match gender {
-            "female" => "Gender & Pronouns: You adopt a female persona and use she/her pronouns in character.",
-            "male" => "Gender & Pronouns: You adopt a male persona and use he/him pronouns in character.",
-            "non-binary" => "Gender & Pronouns: You adopt a non-binary persona and use they/them pronouns in character.",
+            "female" => {
+                "Gender & Pronouns: You adopt a female persona and use she/her pronouns in character."
+            }
+            "male" => {
+                "Gender & Pronouns: You adopt a male persona and use he/him pronouns in character."
+            }
+            "non-binary" => {
+                "Gender & Pronouns: You adopt a non-binary persona and use they/them pronouns in character."
+            }
             other => {
                 parts.push(format!("Gender & Identity: You identify as {other}."));
                 ""
@@ -285,11 +291,7 @@ pub fn find_preset(query: &str) -> Option<&'static PersonaPreset> {
 
 pub fn apply_preset(persona: &mut PersonaConfig, preset_id: &str) -> Result<String, String> {
     let preset = find_preset(preset_id).ok_or_else(|| {
-        let valid = PRESETS
-            .iter()
-            .map(|p| p.id)
-            .collect::<Vec<_>>()
-            .join(", ");
+        let valid = PRESETS.iter().map(|p| p.id).collect::<Vec<_>>().join(", ");
         format!("unknown preset '{preset_id}'. Available presets: {valid}")
     })?;
 
@@ -528,7 +530,9 @@ fn apply_flags(persona: &mut PersonaConfig, args: &[String]) -> Result<String, S
         } else if arg == "--gender" {
             i += 1;
             if i >= args.len() {
-                return Err("--gender requires a value (female, male, non-binary, or reset)".into());
+                return Err(
+                    "--gender requires a value (female, male, non-binary, or reset)".into(),
+                );
             }
             let val = normalize_gender(&args[i])?;
             set_gender(persona, val);
@@ -650,10 +654,16 @@ pub fn format_persona_status(persona: &PersonaConfig) -> String {
     }
     out.push_str("\nCommands:\n");
     out.push_str("  :persona                    Open interactive persona preset selector\n");
-    out.push_str("  :persona preset <id>        Switch to preset (bff, partner, ex, architect, ...)\n");
+    out.push_str(
+        "  :persona preset <id>        Switch to preset (bff, partner, ex, architect, ...)\n",
+    );
     out.push_str("  :persona name <name>        Set assistant persona name (e.g. Alex or Riley)\n");
-    out.push_str("  :persona gender <gender>    Set persona gender (female, male, non-binary, reset)\n");
-    out.push_str("  :persona add <instruction>  Add custom instruction (use ';' to add multiple)\n");
+    out.push_str(
+        "  :persona gender <gender>    Set persona gender (female, male, non-binary, reset)\n",
+    );
+    out.push_str(
+        "  :persona add <instruction>  Add custom instruction (use ';' to add multiple)\n",
+    );
     out.push_str("  :persona remove <number>    Remove an instruction by number\n");
     out.push_str("  :persona clear              Clear all instructions\n");
     out.push_str("  :persona reset              Reset persona name and instructions to default");
@@ -663,15 +673,25 @@ pub fn format_persona_status(persona: &PersonaConfig) -> String {
 pub fn persona_help_text() -> String {
     let mut out = String::new();
     out.push_str("Persona commands:\n");
-    out.push_str("  :persona                    Open interactive persona selector (or show status)\n");
-    out.push_str("  :persona preset <id>        Switch to preset (bff, partner, ex, architect, ...)\n");
-    out.push_str("  :persona name <name>        Set persona name (e.g. :persona name Alex or Riley)\n");
+    out.push_str(
+        "  :persona                    Open interactive persona selector (or show status)\n",
+    );
+    out.push_str(
+        "  :persona preset <id>        Switch to preset (bff, partner, ex, architect, ...)\n",
+    );
+    out.push_str(
+        "  :persona name <name>        Set persona name (e.g. :persona name Alex or Riley)\n",
+    );
     out.push_str("  :persona name reset         Reset persona name to default (NioAI)\n");
-    out.push_str("  :persona gender <gender>    Set persona gender (female, male, non-binary, reset)\n");
+    out.push_str(
+        "  :persona gender <gender>    Set persona gender (female, male, non-binary, reset)\n",
+    );
     out.push_str("  :persona add <instruction>  Add custom instruction (use ';' for multiple)\n");
     out.push_str("  :persona remove <number>    Remove an instruction by 1-based index\n");
     out.push_str("  :persona clear              Clear all custom instructions\n");
-    out.push_str("  :persona reset              Reset persona name and instructions to default\n\n");
+    out.push_str(
+        "  :persona reset              Reset persona name and instructions to default\n\n",
+    );
     out.push_str("Presets (10 built-in):\n");
     for p in PRESETS {
         out.push_str(&format!("  • {:<14} {}\n", p.id, p.description));
@@ -679,7 +699,9 @@ pub fn persona_help_text() -> String {
     out.push_str("\nCLI usage:\n");
     out.push_str("  nio persona                                  Interactive preset selector\n");
     out.push_str("  nio persona bff                              Switch to Bestie (Alex) preset\n");
-    out.push_str("  nio persona partner --gender female          Switch to Partner with female persona\n");
+    out.push_str(
+        "  nio persona partner --gender female          Switch to Partner with female persona\n",
+    );
     out.push_str("  nio persona gender female                    Set persona gender to female\n");
     out.push_str("  nio persona name \"Riley\"                     Set custom name\n");
     out.push_str("  nio persona add \"Remind me to take breaks\"   Add custom instruction");
@@ -738,11 +760,9 @@ pub fn interactive_selector(config: &mut crate::UserConfig) -> Result<(), String
         config.persona.is_empty(),
     ));
 
-    let Some(selected) = crate::select_menu_option_b(
-        "Persona Presets",
-        &menu_items,
-        initial_selected,
-    )? else {
+    let Some(selected) =
+        crate::select_menu_option_b("Persona Presets", &menu_items, initial_selected)?
+    else {
         return Ok(());
     };
 
@@ -758,14 +778,21 @@ pub fn interactive_selector(config: &mut crate::UserConfig) -> Result<(), String
         if !name_input.trim().is_empty() {
             set_name(&mut config.persona, Some(name_input));
         }
-        let inst_input = crate::read_console_line("Add instruction (or press Enter to skip, ';' for multiple): ")?;
+        let inst_input = crate::read_console_line(
+            "Add instruction (or press Enter to skip, ';' for multiple): ",
+        )?;
         if !inst_input.trim().is_empty() {
             let _ = apply_command(&mut config.persona, &["add".into(), inst_input])?;
         }
         crate::save_user_config(config)?;
-        println!("Custom persona saved (name: '{}', {} instruction(s)).", config.persona.display_name(), config.persona.instructions.len());
+        println!(
+            "Custom persona saved (name: '{}', {} instruction(s)).",
+            config.persona.display_name(),
+            config.persona.instructions.len()
+        );
     } else if selected == add_idx {
-        let inst_input = crate::read_console_line("Enter instruction to add (use ';' for multiple): ")?;
+        let inst_input =
+            crate::read_console_line("Enter instruction to add (use ';' for multiple): ")?;
         if !inst_input.trim().is_empty() {
             let res = apply_command(&mut config.persona, &["add".into(), inst_input])?;
             crate::save_user_config(config)?;
@@ -901,7 +928,11 @@ mod tests {
     #[test]
     fn test_apply_command_name_and_reset() {
         let mut persona = PersonaConfig::default();
-        apply_command(&mut persona, &["name".into(), "I'm".into(), "Jarvis".into()]).unwrap();
+        apply_command(
+            &mut persona,
+            &["name".into(), "I'm".into(), "Jarvis".into()],
+        )
+        .unwrap();
         assert_eq!(persona.name.as_deref(), Some("I'm Jarvis"));
         assert_eq!(persona.display_name(), "I'm Jarvis");
         assert_eq!(persona.normalized_names(), ("Jarvis", "I'm Jarvis"));
@@ -954,9 +985,15 @@ mod tests {
         assert_eq!(normalize_gender("m").unwrap(), Some("male".into()));
         assert_eq!(normalize_gender("guy").unwrap(), Some("male".into()));
         assert_eq!(normalize_gender("he").unwrap(), Some("male".into()));
-        assert_eq!(normalize_gender("non-binary").unwrap(), Some("non-binary".into()));
+        assert_eq!(
+            normalize_gender("non-binary").unwrap(),
+            Some("non-binary".into())
+        );
         assert_eq!(normalize_gender("nb").unwrap(), Some("non-binary".into()));
-        assert_eq!(normalize_gender("neutral").unwrap(), Some("non-binary".into()));
+        assert_eq!(
+            normalize_gender("neutral").unwrap(),
+            Some("non-binary".into())
+        );
         assert_eq!(normalize_gender("reset").unwrap(), None);
         assert_eq!(normalize_gender("none").unwrap(), None);
         assert!(normalize_gender("alien").is_err());

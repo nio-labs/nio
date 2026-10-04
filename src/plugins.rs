@@ -654,7 +654,11 @@ pub fn menu_entries(
             format!(
                 "Installed (v{}) · {}",
                 plugin.manifest.version,
-                if plugin.enabled { "Enabled" } else { "Disabled" }
+                if plugin.enabled {
+                    "Enabled"
+                } else {
+                    "Disabled"
+                }
             )
         } else {
             "Not installed · Available in catalog".to_string()
@@ -850,7 +854,12 @@ pub fn menu_entries(
             &["show-details", view],
         ));
     }
-    entries.push(menu_entry("Back", "Return to plugins", false, &["menu", ""]));
+    entries.push(menu_entry(
+        "Back",
+        "Return to plugins",
+        false,
+        &["menu", ""],
+    ));
     Ok(entries)
 }
 
@@ -1499,12 +1508,27 @@ mod tests {
         assert!(top[0].detail.contains("Not installed"));
         let pdf = menu_entries(&base, "pdf", &[]).unwrap();
         assert!(pdf.iter().any(|e| e.command == ["install", "pdf"]));
-        assert!(pdf.iter().any(|e| e.label == "Details" && e.command == ["show-details", "pdf"]));
+        assert!(
+            pdf.iter()
+                .any(|e| e.label == "Details" && e.command == ["show-details", "pdf"])
+        );
         let details_uninstalled = menu_entries(&base, "details:pdf", &[]).unwrap();
         assert!(details_uninstalled.iter().any(|e| e.label == "Description"));
-        assert!(details_uninstalled.iter().any(|e| e.label == "Status" && e.detail.contains("Not installed")));
-        assert!(details_uninstalled.iter().any(|e| e.label == "Extensions" && e.detail.contains(".pdf")));
-        assert!(details_uninstalled.iter().any(|e| e.label == "Back" && e.command == ["menu", "pdf"]));
+        assert!(
+            details_uninstalled
+                .iter()
+                .any(|e| e.label == "Status" && e.detail.contains("Not installed"))
+        );
+        assert!(
+            details_uninstalled
+                .iter()
+                .any(|e| e.label == "Extensions" && e.detail.contains(".pdf"))
+        );
+        assert!(
+            details_uninstalled
+                .iter()
+                .any(|e| e.label == "Back" && e.command == ["menu", "pdf"])
+        );
         let languages = menu_entries(&base, "languages", &["eng".into(), "khm".into()]).unwrap();
         assert_eq!(
             languages[0].label,
@@ -1544,10 +1568,22 @@ mod tests {
         let installed = menu_entries(&base, "pdf", &[]).unwrap();
         assert!(!installed.iter().any(|e| e.command == ["install", "pdf"]));
         assert!(installed.iter().any(|e| e.command == ["disable", "pdf"]));
-        assert!(installed.iter().any(|e| e.label == "Details" && e.command == ["show-details", "pdf"]));
+        assert!(
+            installed
+                .iter()
+                .any(|e| e.label == "Details" && e.command == ["show-details", "pdf"])
+        );
         let details_installed = menu_entries(&base, "details:pdf", &[]).unwrap();
-        assert!(details_installed.iter().any(|e| e.label == "Status" && e.detail.contains("Enabled")));
-        assert!(details_installed.iter().any(|e| e.label == "OCR Languages" && e.detail.contains("eng")));
+        assert!(
+            details_installed
+                .iter()
+                .any(|e| e.label == "Status" && e.detail.contains("Enabled"))
+        );
+        assert!(
+            details_installed
+                .iter()
+                .any(|e| e.label == "OCR Languages" && e.detail.contains("eng"))
+        );
         let languages = menu_entries(&base, "languages", &["eng".into()]).unwrap();
         assert_eq!(languages[0].label, "Install selected OCR languages");
         assert!(languages[0].detail.contains("0.0 MiB"));
