@@ -172,6 +172,23 @@ esac
   } finally { cleanup(root); }
 });
 
+test('shell installer provides Termux cargo instructions when download fails on Android', { skip: process.platform === 'win32' }, () => {
+  const root = temporary();
+  try {
+    const commands = path.join(root, 'commands');
+    const install = path.join(root, 'installed');
+    for (const dir of [commands, install]) fs.mkdirSync(dir);
+    fs.writeFileSync(path.join(commands, 'uname'), '#!/bin/sh\ncase "$1" in -s) echo Linux;; -m) echo aarch64;; esac\n', { mode: 0o755 });
+    fs.writeFileSync(path.join(commands, 'curl'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+    const env = { ...process.env, PATH: `${commands}${path.delimiter}${process.env.PATH}`, NIO_INSTALL_DIR: install,
+      NIO_VERSION: 'v0.3.4', TERMUX_VERSION: '0.118.0' };
+    const res = spawnSync('sh', [path.resolve(__dirname, '../install.sh')], { env, encoding: 'utf8', timeout: 10_000 });
+    assert.notEqual(res.status, 0);
+    assert.match(res.stderr, /Termux on Android/);
+    assert.match(res.stderr, /pkg install rust/);
+  } finally { cleanup(root); }
+});
+
 test('PowerShell installer requires checksums before extraction and cleans up failures', { skip: process.platform !== 'win32' }, () => {
   const root = temporary();
   try {

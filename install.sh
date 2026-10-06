@@ -73,18 +73,24 @@ else
     CHECKSUM_URL="https://github.com/${REPO}/releases/download/${VERSION}/SHA256SUMS"
 fi
 
+download_failed() {
+    echo "❌ Failed to download release archive from $DOWNLOAD_URL" >&2
+    if [ "$TARGET" = "aarch64-linux-android" ]; then
+        echo "" >&2
+        echo "💡 For Termux on Android, if the pre-compiled binary is not yet available for ${VERSION}:" >&2
+        echo "   You can install from source with Cargo:" >&2
+        echo "     pkg install rust" >&2
+        echo "     cargo install --locked --git https://github.com/${REPO}.git" >&2
+    fi
+    exit 1
+}
+
 echo "⬇️  Downloading NioAI (${VERSION})..."
 if command -v curl >/dev/null 2>&1; then
-    curl --connect-timeout 10 --max-time 120 -fsSL "$DOWNLOAD_URL" -o "$TMP_DIR/$ARCHIVE" || {
-        echo "❌ Failed to download release archive from $DOWNLOAD_URL" >&2
-        exit 1
-    }
+    curl --connect-timeout 10 --max-time 120 -fsSL "$DOWNLOAD_URL" -o "$TMP_DIR/$ARCHIVE" || download_failed
     curl --connect-timeout 10 --max-time 120 -fsSL "$CHECKSUM_URL" -o "$TMP_DIR/SHA256SUMS"
 elif command -v wget >/dev/null 2>&1; then
-    wget --timeout=30 --tries=1 -q "$DOWNLOAD_URL" -O "$TMP_DIR/$ARCHIVE" || {
-        echo "❌ Failed to download release archive from $DOWNLOAD_URL" >&2
-        exit 1
-    }
+    wget --timeout=30 --tries=1 -q "$DOWNLOAD_URL" -O "$TMP_DIR/$ARCHIVE" || download_failed
     wget --timeout=30 --tries=1 -q "$CHECKSUM_URL" -O "$TMP_DIR/SHA256SUMS"
 else
     echo "❌ Neither curl nor wget is available." >&2

@@ -1451,7 +1451,7 @@ fn agent_tools(mode: &str) -> Value {
         {"type":"function","function":{"name":"ask_user","description":"Ask one focused question when a missing answer blocks work. In an interactive terminal, collect the answer immediately and continue; otherwise end the turn for a reply.","parameters":{"type":"object","properties":{"question":{"type":"string"},"options":{"type":"array","items":{"type":"string"},"maxItems":3}},"required":["question"],"additionalProperties":false}}},
         {"type":"function","function":{"name":"request_build_mode","description":"Ask the user to switch from Ask or Plan to Build so you can implement their request. Ends the turn with Yes/No options. Only a subsequent explicit Yes switches modes; file and command approval settings still apply.","parameters":{"type":"object","properties":{},"additionalProperties":false}}},
         {"type":"function","function":{"name":"terminal_start","description":"Start an approved command in the project and return a session ID. Build mode only. Read output with terminal_read and stop with terminal_cancel.","parameters":{"type":"object","properties":{"command":{"type":"string"},"timeout_seconds":{"type":"integer","minimum":1,"maximum":3600}},"required":["command"],"additionalProperties":false}}},
-        {"type":"function","function":{"name":"terminal_read","description":"Read new output from a terminal session. Returns running, exit_code, and next_cursor.","parameters":{"type":"object","properties":{"session_id":{"type":"string"},"cursor":{"type":"integer","minimum":0},"wait_ms":{"type":"integer","minimum":0,"maximum":1000}},"required":["session_id"],"additionalProperties":false}}},
+        {"type":"function","function":{"name":"terminal_read","description":"Read new output from a terminal session. Returns running, exit_code, and next_cursor.","parameters":{"type":"object","properties":{"session_id":{"type":"string"},"cursor":{"type":"integer","minimum":0},"wait_ms":{"type":"integer","minimum":0,"maximum":30000}},"required":["session_id"],"additionalProperties":false}}},
         {"type":"function","function":{"name":"terminal_cancel","description":"Stop an approved terminal session. Build mode only.","parameters":{"type":"object","properties":{"session_id":{"type":"string"}},"required":["session_id"],"additionalProperties":false}}},
         {"type":"function","function":{"name":"patch_file","description":"Replace an exact block of lines in a project file. Read the current file first; after any edit, re-read before preparing another patch. old_content must match exactly and be unique. If a patch reports stale content, read_file again and retry with the current exact block. Approval depends on Nio settings.","parameters":{"type":"object","properties":{"path":{"type":"string","description":"Project-relative file path"},"old_content":{"type":"string","description":"Exact lines/content to replace"},"new_content":{"type":"string","description":"Replacement lines/content"}},"required":["path","old_content","new_content"],"additionalProperties":false}}},
         {"type":"function","function":{"name":"write_file","description":"Create or replace a project file. Approval depends on Nio settings.","parameters":{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false}}},
@@ -1518,6 +1518,298 @@ fn unknown_tool_error(name: &str, tools: &Value) -> String {
     format!(
         "Unknown tool {name:?}. Use an exact function name from the available tools: {names}. Call the function directly; do not use edit, call_tool, or tool_name wrappers, or XML tags."
     )
+}
+
+fn has_leaked_tool_call(text: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
+    lower.contains("<tool_call")
+        || lower.contains("</tool_call>")
+        || lower.contains("<function=")
+        || lower.contains("<function name=")
+        || lower.contains("<function_call")
+}
+
+fn is_potential_leaked_tool_call_stream(answer: &str) -> bool {
+    let trimmed = answer.trim_start();
+    if trimmed.is_empty() {
+        return false;
+    }
+    if trimmed.starts_with("<tool_call")
+        || trimmed.starts_with("<function=")
+        || trimmed.starts_with("<function_call")
+        || trimmed.starts_with("<function name=")
+    {
+        return true;
+    }
+    if trimmed.starts_with('<') && trimmed.len() < 16 {
+        for prefix in [
+            "<tool_call",
+            "<function=",
+            "<function_call",
+            "<function name=",
+        ] {
+            if prefix.starts_with(trimmed) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn parse_parameter_value(val_str: &str) -> Value {
+    let trimmed = val_str.trim();
+    if let Ok(num) = trimmed.parse::<i64>() {
+        return json!(num);
+    }
+    if let Ok(num) = trimmed.parse::<f64>() {
+        return json!(num);
+    }
+    if let Ok(b) = trimmed.parse::<bool>() {
+        return json!(b);
+    }
+    if (trimmed.starts_with('{') && trimmed.ends_with('}'))
+        || (trimmed.starts_with('[') && trimmed.ends_with(']'))
+    {
+        if let Ok(json_val) = serde_json::from_str::<Value>(trimmed) {
+            return json_val;
+        }
+    }
+    if (trimmed.starts_with('"') && trimmed.ends_with('"'))
+        || (trimmed.starts_with('\'') && trimmed.ends_with('\''))
+    {
+        if trimmed.len() >= 2 {
+            return json!(&trimmed[1..trimmed.len() - 1]);
+        }
+    }
+    json!(trimmed)
+}
+
+fn parse_xml_function_tag(block: &str, index: usize) -> Option<AssistantToolCall> {
+    let name = if let Some(pos) = block.find("<function=") {
+        let after = &block[pos + 10..];
+        let end = after.find('>')?;
+        after[..end].trim().to_string()
+    } else if let Some(pos) = block.find("<function name=") {
+        let after = &block[pos + 15..];
+        let trimmed = after.trim_start_matches(|c| c == '"' || c == '\'');
+        let end = trimmed.find(|c| c == '"' || c == '\'' || c == '>')?;
+        trimmed[..end].trim().to_string()
+    } else if let Some(pos) = block.find("<function>") {
+        let after = &block[pos + 10..];
+        let end = after.find("</function>")?;
+        after[..end].trim().to_string()
+    } else {
+        return None;
+    };
+
+    if name.is_empty() {
+        return None;
+    }
+
+    let mut args_map = serde_json::Map::new();
+    let mut param_cursor = 0;
+    while let Some(param_pos) = block[param_cursor..]
+        .find("<parameter=")
+        .or_else(|| block[param_cursor..].find("<parameter name="))
+    {
+        let abs_pos = param_cursor + param_pos;
+        let is_attr_syntax = block[abs_pos..].starts_with("<parameter name=");
+        let tag_start = if is_attr_syntax {
+            abs_pos + 16
+        } else {
+            abs_pos + 11
+        };
+        let Some(tag_end) = block[tag_start..].find('>') else {
+            break;
+        };
+        let param_name_raw = &block[tag_start..tag_start + tag_end];
+        let param_name = param_name_raw
+            .trim()
+            .trim_matches(|c| c == '"' || c == '\'');
+
+        let val_start = tag_start + tag_end + 1;
+        let val_end = if let Some(closing) = block[val_start..].find("</parameter>") {
+            val_start + closing
+        } else if let Some(closing) = block[val_start..].find("</function>") {
+            val_start + closing
+        } else {
+            block.len()
+        };
+
+        let val_str = &block[val_start..val_end];
+        args_map.insert(param_name.to_string(), parse_parameter_value(val_str));
+
+        param_cursor = val_end;
+        if param_cursor >= block.len() {
+            break;
+        }
+    }
+
+    if args_map.is_empty() {
+        if let Some(brace_start) = block.find('{') {
+            if let Some(brace_end) = block.rfind('}') {
+                if brace_end > brace_start {
+                    if let Ok(Value::Object(obj)) =
+                        serde_json::from_str(&block[brace_start..=brace_end])
+                    {
+                        args_map = obj;
+                    }
+                }
+            }
+        }
+    }
+
+    Some(AssistantToolCall {
+        id: format!("recovered_call_{index}"),
+        name: normalize_tool_name(&name),
+        arguments: Value::Object(args_map),
+    })
+}
+
+fn parse_single_tool_call_block(block: &str, index: usize) -> Option<AssistantToolCall> {
+    let trimmed = block.trim();
+    if trimmed.starts_with('{') {
+        if let Ok(val) = serde_json::from_str::<Value>(trimmed) {
+            if let Some(name) = val.get("name").and_then(Value::as_str) {
+                let args = if let Some(args_val) =
+                    val.get("arguments").or_else(|| val.get("parameters"))
+                {
+                    if args_val.is_object() {
+                        args_val.clone()
+                    } else if let Some(args_str) = args_val.as_str() {
+                        serde_json::from_str::<Value>(args_str)
+                            .unwrap_or(Value::Object(Default::default()))
+                    } else {
+                        Value::Object(Default::default())
+                    }
+                } else {
+                    Value::Object(Default::default())
+                };
+                return Some(AssistantToolCall {
+                    id: format!("recovered_call_{index}"),
+                    name: normalize_tool_name(name),
+                    arguments: args,
+                });
+            } else if let Some(func) = val.get("function") {
+                if let Some(name) = func.get("name").and_then(Value::as_str) {
+                    let args = if let Some(args_val) =
+                        func.get("arguments").or_else(|| func.get("parameters"))
+                    {
+                        if args_val.is_object() {
+                            args_val.clone()
+                        } else if let Some(args_str) = args_val.as_str() {
+                            serde_json::from_str::<Value>(args_str)
+                                .unwrap_or(Value::Object(Default::default()))
+                        } else {
+                            Value::Object(Default::default())
+                        }
+                    } else {
+                        Value::Object(Default::default())
+                    };
+                    return Some(AssistantToolCall {
+                        id: format!("recovered_call_{index}"),
+                        name: normalize_tool_name(name),
+                        arguments: args,
+                    });
+                }
+            }
+        }
+    }
+    parse_xml_function_tag(block, index)
+}
+
+fn parse_leaked_tool_calls(text: &str) -> Vec<AssistantToolCall> {
+    let mut calls = Vec::new();
+    let mut search_from = 0;
+
+    while let Some(start_idx) = text[search_from..]
+        .find("<tool_call")
+        .or_else(|| text[search_from..].find("<function_call"))
+    {
+        let abs_start = search_from + start_idx;
+        let content_start = match text[abs_start..].find('>') {
+            Some(i) => abs_start + i + 1,
+            None => abs_start,
+        };
+
+        let end_idx = text[content_start..]
+            .find("</tool_call>")
+            .or_else(|| text[content_start..].find("</function_call>"));
+
+        let (block_content, next_search) = if let Some(end) = end_idx {
+            (
+                &text[content_start..content_start + end],
+                content_start + end + 12,
+            )
+        } else {
+            (&text[content_start..], text.len())
+        };
+
+        if let Some(call) = parse_single_tool_call_block(block_content, calls.len()) {
+            calls.push(call);
+        }
+
+        search_from = next_search;
+        if search_from >= text.len() {
+            break;
+        }
+    }
+
+    if calls.is_empty() && (text.contains("<function=") || text.contains("<function name=")) {
+        if let Some(call) = parse_xml_function_tag(text, 0) {
+            calls.push(call);
+        }
+    }
+
+    calls
+}
+
+fn strip_leaked_tool_calls(text: &mut String) {
+    while let Some(start) = text
+        .find("<tool_call")
+        .or_else(|| text.find("<function_call"))
+    {
+        if let Some(end) = text[start..].find("</tool_call>") {
+            text.replace_range(start..start + end + 12, "");
+        } else if let Some(end) = text[start..].find("</function_call>") {
+            text.replace_range(start..start + end + 16, "");
+        } else {
+            text.truncate(start);
+            break;
+        }
+    }
+    while let Some(start) = text.find("<function=") {
+        if let Some(end) = text[start..].find("</function>") {
+            text.replace_range(start..start + end + 11, "");
+        } else {
+            text.truncate(start);
+            break;
+        }
+    }
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        text.clear();
+    } else {
+        *text = trimmed.to_string();
+    }
+}
+
+fn ask_user_retry_unparseable_tool(options: &Options) -> Result<bool, String> {
+    if options.json_output || !io::stdin().is_terminal() {
+        return Ok(false);
+    }
+    eprint!(
+        "\r\n\x1b[33m!\x1b[0m The model returned an unparseable tool call. Retry this step? [y/N]: "
+    );
+    let _ = io::stderr().flush();
+    let mut input = String::new();
+    io::stdin()
+        .read_line(&mut input)
+        .map_err(|error| format!("reading retry choice: {error}"))?;
+    Ok(matches!(
+        input.trim().to_ascii_lowercase().as_str(),
+        "y" | "yes"
+    ))
 }
 
 fn public_tool(name: &str) -> bool {
@@ -1593,6 +1885,39 @@ mod mode_tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     static TEST_ID: AtomicUsize = AtomicUsize::new(0);
+
+    #[test]
+    fn recovers_leaked_xml_and_json_tool_calls() {
+        let text = r#"
+<tool_call>
+<function=terminal_read>
+<parameter=session_id>
+term-132348-2
+</parameter>
+<parameter=wait_ms>
+300000
+</parameter>
+</function>
+</tool_call>
+"#;
+        assert!(super::has_leaked_tool_call(text));
+        assert!(super::is_potential_leaked_tool_call_stream(text));
+        let calls = super::parse_leaked_tool_calls(text);
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].name, "terminal_read");
+        assert_eq!(calls[0].arguments["session_id"], "term-132348-2");
+        assert_eq!(calls[0].arguments["wait_ms"], 300000);
+
+        let mut cleaned = text.to_string();
+        super::strip_leaked_tool_calls(&mut cleaned);
+        assert!(cleaned.is_empty());
+
+        let json_text = r#"<tool_call>{"name":"terminal_read","arguments":{"session_id":"term-1"}}</tool_call>"#;
+        let json_calls = super::parse_leaked_tool_calls(json_text);
+        assert_eq!(json_calls.len(), 1);
+        assert_eq!(json_calls[0].name, "terminal_read");
+        assert_eq!(json_calls[0].arguments["session_id"], "term-1");
+    }
 
     #[test]
     fn provider_filters_combine_with_search_and_keep_catalog_indices() {
@@ -3311,13 +3636,15 @@ fn process_sse_line(
                 return Err("response text exceeded the 2 MiB limit".into());
             }
             answer.push_str(&content);
-            let formatted = formatter.push(&content);
-            if !formatted.is_empty() {
-                if !*response_started && !strip_terminal_ansi(&formatted).trim().is_empty() {
-                    emit_assistant_start(options)?;
-                    *response_started = true;
+            if !is_potential_leaked_tool_call_stream(answer) {
+                let formatted = formatter.push(&content);
+                if !formatted.is_empty() {
+                    if !*response_started && !strip_terminal_ansi(&formatted).trim().is_empty() {
+                        emit_assistant_start(options)?;
+                        *response_started = true;
+                    }
+                    emit_text(options, &formatted)?;
                 }
-                emit_text(options, &formatted)?;
             }
         }
         for partial in choice.delta.tool_calls {
@@ -5125,6 +5452,7 @@ async fn run_agent_turn_inner(
         .filter(|v| *v != "default");
     let tools = tools_for_turn(options, mode);
     let mut retried_empty_response = false;
+    let mut retried_leaked_tool = false;
     let step_limit = user_config
         .agent_step_limit
         .unwrap_or(STEP_LIMIT)
@@ -5351,7 +5679,7 @@ async fn run_agent_turn_inner(
             }
             emit_text(options, &formatted_tail)?;
         }
-        let calls = pending_tools
+        let mut calls = pending_tools
             .into_values()
             .map(|pending| {
                 if pending.id.is_empty() || pending.name.is_empty() {
@@ -5372,6 +5700,48 @@ async fn run_agent_turn_inner(
         let mut ids = std::collections::HashSet::new();
         if calls.iter().any(|call| !ids.insert(&call.id)) {
             return Err("duplicate tool call IDs".into());
+        }
+        if calls.is_empty() && has_leaked_tool_call(&answer) {
+            let recovered = parse_leaked_tool_calls(&answer);
+            if !recovered.is_empty() {
+                emit_status(
+                    options,
+                    "recovering",
+                    "Recovered tool call from model text output",
+                );
+                calls = recovered;
+                strip_leaked_tool_calls(&mut answer);
+            } else if !retried_leaked_tool {
+                retried_leaked_tool = true;
+                compact_tool_messages(&mut messages);
+                compact_tool_messages(history);
+                messages.push(json!({"role":"system","content":"Your last response contained raw <tool_call> tags in text instead of invoking tools via the function calling API. Do not output raw XML tags or <tool_call> in message content; invoke tools using the structured tool-calling API."}));
+                emit_status(
+                    options,
+                    "retrying",
+                    "Model emitted raw tool call text; requesting valid structured tool call",
+                );
+                continue;
+            } else if ask_user_retry_unparseable_tool(options)? {
+                emit_status(options, "retrying", "Retrying step per user request");
+                continue;
+            } else {
+                return Err(
+                    "Model produced an unparseable tool call; stopped per user request.".into(),
+                );
+            }
+        }
+        if calls.is_empty() && !response_started && !answer.trim().is_empty() {
+            let mut flush_formatter =
+                MarkdownFormatter::new(!options.json_output && io::stdout().is_terminal());
+            let formatted = flush_formatter.push(&answer);
+            let tail = flush_formatter.finish();
+            let full = format!("{formatted}{tail}");
+            if !strip_terminal_ansi(&full).trim().is_empty() {
+                emit_assistant_start(options)?;
+                response_started = true;
+                emit_text(options, &full)?;
+            }
         }
         if !options.json_output && response_started && !answer.ends_with('\n') {
             let newline = if RAW_TTY_MODE.load(Ordering::SeqCst) {

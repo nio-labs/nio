@@ -705,7 +705,7 @@ pub fn terminal_start(
 
 pub async fn terminal_read(root: &Path, args: &Value) -> Result<String, String> {
     let id = required_arg(args, "session_id")?;
-    let wait_ms = limited_usize(args, "wait_ms", 200, 1_000);
+    let wait_ms = limited_usize(args, "wait_ms", 200, 30_000);
     let deadline = Instant::now() + Duration::from_millis(wait_ms as u64);
     loop {
         let registry = sessions()

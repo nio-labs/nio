@@ -202,6 +202,12 @@ async function main() {
     });
   } catch (err) {
     console.error(`[nio-ai] Error: ${err.message}`);
+    try {
+      if (getPlatformInfo().target === 'aarch64-linux-android') {
+        console.error('[nio-ai] Note: For Termux on Android, if the pre-built binary is not yet available:');
+        console.error('[nio-ai]   pkg install rust && cargo install --locked --git https://github.com/nio-labs/nio.git');
+      }
+    } catch {}
     process.exit(1);
   }
 }
