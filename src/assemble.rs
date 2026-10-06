@@ -5,7 +5,6 @@
 //! orchestrating execution through NioDB shared context and task queues.
 
 use crate::agent_runner::{detect_agents, run_agent_streaming};
-use crate::bridge::DEFAULT_MODELS;
 use crate::niodb::NioDbClient;
 use crate::Options;
 use serde_json::json;
@@ -177,11 +176,7 @@ async fn run_empty_state_assemble_display(db: &NioDbClient) -> Result<(), String
     }
     println!("    ● Swarms   : {} active swarms (Empty State)", swarms.len());
 
-    println!("\n  \x1b[1mAvailable Model Strategies:\x1b[0m");
-    for (idx, (m_id, m_name)) in DEFAULT_MODELS.iter().enumerate() {
-        let is_rec = if idx == 0 { " (Default / Recommended)" } else { "" };
-        println!("    [{}] {:<20} - {}{}", idx + 1, m_id, m_name, is_rec);
-    }
+    println!("\n  Each agent uses its own configured model by default.");
 
     println!(
         r#"
@@ -241,29 +236,28 @@ async fn run_empty_state_assemble(db: &NioDbClient, preselected_model: Option<&s
     }
 
     println!("\n  \x1b[1mAssemble Actions:\x1b[0m");
-    println!("    [1] Start New Swarm — \x1b[36mNio Autonomous Chair\x1b[0m (Default: Nio decides roster)");
-    println!("    [2] Start New Swarm — \x1b[35mCustom Interactive Roster\x1b[0m (Pick roles manually)");
+    let mut actions = vec!["Start New Swarm — Nio Autonomous Chair (Nio decides roster)".to_string(),
+        "Start New Swarm — Custom Interactive Roster (Pick roles manually)".to_string()];
     if !swarms.is_empty() {
-        println!("    [3] Inspect Active Swarms & Tasks");
+        actions.push("Inspect Active Swarms & Tasks".to_string());
     }
-    println!("    [q] Quit\n");
-
-    print!("  Select option [1]: ");
-    io::stdout().flush().map_err(|e| e.to_string())?;
-
-    let mut choice = String::new();
-    io::stdin().read_line(&mut choice).map_err(|e| e.to_string())?;
-    let choice = choice.trim();
-
-    if choice == "q" || choice == "Q" {
+    actions.push("Quit".to_string());
+    let menu_items: Vec<(&str, &str, bool)> = actions
+        .iter()
+        .map(|action| (action.as_str(), "", false))
+        .collect();
+    let Some(choice) = crate::select_menu_option_b("Assemble", &menu_items, 0)? else {
+        return Ok(());
+    };
+    if choice == actions.len() - 1 {
         return Ok(());
     }
 
-    if choice == "3" && !swarms.is_empty() {
+    if choice == 2 && !swarms.is_empty() {
         return list_swarms(db).await;
     }
 
-    if choice == "2" {
+    if choice == 1 {
         return run_interactive_custom_roster(db).await;
     }
 
@@ -285,29 +279,11 @@ async fn run_interactive_nio_chair(db: &NioDbClient, preselected_model: Option<&
     }
 
     // Model selection
-    let selected_model = if let Some(m) = preselected_model {
-        m.to_string()
-    } else {
-        println!("\n  \x1b[1m2. Base Model Strategy:\x1b[0m");
-        for (idx, (m_id, m_name)) in DEFAULT_MODELS.iter().enumerate() {
-            let is_rec = if idx == 0 { " (Default)" } else { "" };
-            println!("    [{}] {:<20} - {}{}", idx + 1, m_id, m_name, is_rec);
-        }
-        print!("  Select model [1]: ");
-        io::stdout().flush().map_err(|e| e.to_string())?;
-
-        let mut model_choice = String::new();
-        io::stdin().read_line(&mut model_choice).map_err(|e| e.to_string())?;
-        let model_idx = model_choice.trim().parse::<usize>().unwrap_or(1);
-        DEFAULT_MODELS
-            .get(model_idx.saturating_sub(1))
-            .map(|(id, _)| id.to_string())
-            .unwrap_or_else(|| DEFAULT_MODELS[0].0.to_string())
-    };
+    let selected_model = preselected_model.map(str::to_string);
 
     // Autonomous Chair Roster Decision
     println!("\n  \x1b[36m✦ Nio Autonomous Chair Analyzing Goal & Roster Requirements...\x1b[0m");
-    let (planner, coder, tester, rationale) = decide_roster(goal, &selected_model);
+    let (planner, coder, tester, rationale) = decide_roster(goal, selected_model.as_deref().unwrap_or("agent default"));
 
     println!(
         r#"
@@ -337,7 +313,7 @@ async fn run_interactive_nio_chair(db: &NioDbClient, preselected_model: Option<&
     create_and_run_swarm(
         db,
         goal,
-        Some(&selected_model),
+        selected_model.as_deref(),
         Some(planner.0),
         Some(coder.0),
         Some(tester.0),
@@ -363,43 +339,30 @@ async fn run_interactive_custom_roster(db: &NioDbClient) -> Result<(), String> {
         vec!["agy".into(), "codex".into(), "claude".into(), "kilo".into(), "copilot".into()]
     };
 
-    println!("\n  Available Detected Agents:");
-    for (idx, id) in available.iter().enumerate() {
-        println!("    [{}] {}", idx + 1, id);
-    }
-
     println!("\n  \x1b[1m2. Select Planner Agent:\x1b[0m");
-    let planner = prompt_agent_choice(&available, "agy");
+    let planner = prompt_agent_choice(&available, "agy")?;
 
     println!("\n  \x1b[1m3. Select Coder Agent:\x1b[0m");
     let coder_fallback = if available.contains(&"kilo".to_string()) { "kilo" } else { "codex" };
-    let coder = prompt_agent_choice(&available, coder_fallback);
+    let coder = prompt_agent_choice(&available, coder_fallback)?;
 
     println!("\n  \x1b[1m4. Select Tester Agent:\x1b[0m");
-    let tester = prompt_agent_choice(&available, "claude");
+    let tester = prompt_agent_choice(&available, "claude")?;
 
-    println!("\n  \x1b[1m5. Select Base Model:\x1b[0m [1: claude-3-7-sonnet]:");
-    let model = DEFAULT_MODELS[0].0;
-
-    create_and_run_swarm(db, goal, Some(model), Some(&planner), Some(&coder), Some(&tester)).await
+    println!("\n  Each agent will use its configured model.");
+    create_and_run_swarm(db, goal, None, Some(&planner), Some(&coder), Some(&tester)).await
 }
 
-fn prompt_agent_choice(available: &[String], fallback: &str) -> String {
-    print!("  Select agent [{fallback}]: ");
-    let _ = io::stdout().flush();
-    let mut input = String::new();
-    let _ = io::stdin().read_line(&mut input);
-    let trimmed = input.trim();
-    if let Ok(idx) = trimmed.parse::<usize>() {
-        if idx >= 1 && idx <= available.len() {
-            return available[idx - 1].clone();
-        }
-    }
-    if !trimmed.is_empty() {
-        trimmed.to_string()
-    } else {
-        fallback.to_string()
-    }
+fn prompt_agent_choice(available: &[String], fallback: &str) -> Result<String, String> {
+    let default = available.iter().position(|agent| agent == fallback).unwrap_or(0);
+    let menu_items: Vec<(&str, &str, bool)> = available
+        .iter()
+        .map(|agent| (agent.as_str(), "", false))
+        .collect();
+    let Some(selected) = crate::select_menu_option_b("Select Agent", &menu_items, default)? else {
+        return Err("Agent selection cancelled.".to_string());
+    };
+    Ok(available[selected].clone())
 }
 
 fn decide_roster<'a>(
@@ -408,9 +371,9 @@ fn decide_roster<'a>(
 ) -> ((&'static str, &'a str), (&'static str, &'a str), (&'static str, &'a str), String) {
     let lower = goal.to_ascii_lowercase();
 
-    let planner = ("agy", "gemini-2.5-pro");
+    let planner = ("agy", base_model);
     let coder = ("codex", base_model);
-    let tester = ("claude", "claude-3-7-sonnet");
+    let tester = ("claude", base_model);
 
     let rationale = if lower.contains("test") || lower.contains("qa") || lower.contains("verify") {
         "Goal emphasizes verification: Claude assigned to lead testing & edge case audit, agy breaking down test matrix, codex generating suites.".to_string()
@@ -434,18 +397,18 @@ async fn create_and_run_swarm(
     let planner_ag = planner.unwrap_or("agy");
     let coder_ag = coder.unwrap_or("codex");
     let tester_ag = tester.unwrap_or("claude");
-    let base_model = model.unwrap_or("claude-3-7-sonnet");
+    let model_label = model.unwrap_or("agent default");
 
     let agents_config = json!({
-        "planner": { "agent": planner_ag, "model": base_model, "role": "Architectural Breakdown" },
-        "coder": { "agent": coder_ag, "model": base_model, "role": "Implementation" },
-        "tester": { "agent": tester_ag, "model": base_model, "role": "Verification & QA" },
+        "planner": { "agent": planner_ag, "model": model, "role": "Architectural Breakdown" },
+        "coder": { "agent": coder_ag, "model": model, "role": "Implementation" },
+        "tester": { "agent": tester_ag, "model": model, "role": "Verification & QA" },
     });
 
     println!("\n\x1b[32m✦ Initializing Swarm in NioDB...\x1b[0m");
     let swarm_title = format!("Assemble: {}", goal);
     let session = match db
-        .create_session(&swarm_title, "nio", Some(base_model), Some("assemble"), Some(goal), Some(agents_config))
+        .create_session(&swarm_title, "nio", model, Some("assemble"), Some(goal), Some(agents_config))
         .await
     {
         Ok(v) => v,
@@ -463,7 +426,7 @@ async fn create_and_run_swarm(
     // STAGE 1: PLANNING
     // ==========================================
     println!("\n  \x1b[1;34m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\x1b[0m");
-    println!("  \x1b[1;34m[STAGE 1/3] PLANNER: {} ({})\x1b[0m", planner_ag, base_model);
+    println!("  \x1b[1;34m[STAGE 1/3] PLANNER: {} ({})\x1b[0m", planner_ag, model_label);
     println!("  \x1b[2mDecomposing goal into actionable tasks...\x1b[0m\n");
 
     let plan_prompt = format!(
@@ -477,9 +440,9 @@ async fn create_and_run_swarm(
         goal
     );
 
-    let (_plan_code, plan_output) = run_agent_streaming(planner_ag, Some(base_model), &plan_prompt, Some("planner")).await?;
+    let (_plan_code, plan_output) = run_agent_streaming(planner_ag, model, &plan_prompt, Some("planner")).await?;
 
-    let _ = db.append_turn(swarm_id, planner_ag, Some(base_model), "Completed architecture and planning breakdown", &[]).await;
+    let _ = db.append_turn(swarm_id, planner_ag, model, "Completed architecture and planning breakdown", &[]).await;
 
     // Create task entries in NioDB
     let _ = db.create_task(swarm_id, "Implement Code Changes", "coder", json!({ "goal": goal })).await;
@@ -489,7 +452,7 @@ async fn create_and_run_swarm(
     // STAGE 2: CODING
     // ==========================================
     println!("\n  \x1b[1;32m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\x1b[0m");
-    println!("  \x1b[1;32m[STAGE 2/3] CODER: {} ({})\x1b[0m", coder_ag, base_model);
+    println!("  \x1b[1;32m[STAGE 2/3] CODER: {} ({})\x1b[0m", coder_ag, model_label);
     println!("  \x1b[2mStreaming implementation agent...\x1b[0m\n");
 
     let code_prompt = format!(
@@ -500,14 +463,14 @@ async fn create_and_run_swarm(
         goal, plan_output
     );
 
-    let (_code_res, code_output) = run_agent_streaming(coder_ag, Some(base_model), &code_prompt, Some("coder")).await?;
-    let _ = db.append_turn(swarm_id, coder_ag, Some(base_model), "Executed implementation changes", &[]).await;
+    let (_code_res, code_output) = run_agent_streaming(coder_ag, model, &code_prompt, Some("coder")).await?;
+    let _ = db.append_turn(swarm_id, coder_ag, model, "Executed implementation changes", &[]).await;
 
     // ==========================================
     // STAGE 3: TESTING & QA
     // ==========================================
     println!("\n  \x1b[1;35m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\x1b[0m");
-    println!("  \x1b[1;35m[STAGE 3/3] TESTER: {} ({})\x1b[0m", tester_ag, base_model);
+    println!("  \x1b[1;35m[STAGE 3/3] TESTER: {} ({})\x1b[0m", tester_ag, model_label);
     println!("  \x1b[2mStreaming test and verification agent...\x1b[0m\n");
 
     let test_prompt = format!(
@@ -518,8 +481,8 @@ async fn create_and_run_swarm(
         goal, code_output
     );
 
-    let (_test_res, _test_output) = run_agent_streaming(tester_ag, Some(base_model), &test_prompt, Some("tester")).await?;
-    let _ = db.append_turn(swarm_id, tester_ag, Some(base_model), "Completed test verification", &[]).await;
+    let (_test_res, _test_output) = run_agent_streaming(tester_ag, model, &test_prompt, Some("tester")).await?;
+    let _ = db.append_turn(swarm_id, tester_ag, model, "Completed test verification", &[]).await;
 
     // ==========================================
     // CONCLUSION

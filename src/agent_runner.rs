@@ -68,10 +68,23 @@ pub fn find_binary(name: &str) -> Option<PathBuf> {
 
     // 2. Check standard system directories
     let mut fallbacks = Vec::new();
+    fallbacks.push(PathBuf::from("/opt/homebrew/bin").join(name));
+    fallbacks.push(PathBuf::from("/usr/local/bin").join(name));
+    fallbacks.push(PathBuf::from("/usr/bin").join(name));
+
     if let Ok(home) = env::var("HOME") {
         let home_path = PathBuf::from(&home);
         fallbacks.push(home_path.join(".local/bin").join(name));
         fallbacks.push(home_path.join(".cargo/bin").join(name));
+        fallbacks.push(home_path.join(".kilo/bin").join(name));
+        fallbacks.push(home_path.join(".opencode/bin").join(name));
+        fallbacks.push(home_path.join(".claude/bin").join(name));
+        fallbacks.push(home_path.join(".claude/local/bin").join(name));
+        fallbacks.push(home_path.join(".npm-global/bin").join(name));
+        fallbacks.push(home_path.join(".yarn/bin").join(name));
+        fallbacks.push(home_path.join(".bun/bin").join(name));
+        fallbacks.push(home_path.join(".gemini/antigravity-cli/bin").join(name));
+        fallbacks.push(home_path.join(".gemini/bin").join(name));
 
         // Scan NVM node versions directory (e.g. ~/.nvm/versions/node/v*/bin)
         let nvm_node_dir = home_path.join(".nvm/versions/node");
@@ -84,8 +97,6 @@ pub fn find_binary(name: &str) -> Option<PathBuf> {
             }
         }
     }
-    fallbacks.push(PathBuf::from("/usr/local/bin").join(name));
-    fallbacks.push(PathBuf::from("/usr/bin").join(name));
 
     for candidate in fallbacks {
         if candidate.is_file() {
@@ -113,23 +124,27 @@ pub fn format_handoff_prompt(goal: &str, manifest_opt: Option<&serde_json::Value
 
     let mut text = format!(
         "[NIO AGENT CONTEXT HANDOFF]\n\
-         Session: {session_id} | From: {prev_agent} | Model: {model}\n"
+         Session: {session_id} | Previous Agent: {prev_agent} | Model: {model}\n"
     );
 
+    let mut has_turns = false;
     if let Some(turns) = manifest.get("recent_turns").and_then(|v| v.as_array()) {
         if !turns.is_empty() {
-            text.push_str("Recent Completed Turns:\n");
+            has_turns = true;
+            text.push_str("\nRecent Completed Turns:\n");
             for turn in turns {
                 let ag = turn.get("agent").and_then(|v| v.as_str()).unwrap_or("agent");
                 let sm = turn.get("summary").and_then(|v| v.as_str()).unwrap_or("");
-                text.push_str(&format!("  • [{ag}]: {sm}\n"));
+                if !sm.is_empty() {
+                    text.push_str(&format!("  • [{ag}]: {sm}\n"));
+                }
             }
         }
     }
 
     if let Some(files) = manifest.get("files_touched").and_then(|v| v.as_array()) {
         if !files.is_empty() {
-            text.push_str("Files Touched So Far:\n");
+            text.push_str("\nFiles Touched So Far:\n");
             for f in files {
                 if let Some(path) = f.as_str() {
                     text.push_str(&format!("  • {path}\n"));
@@ -140,7 +155,7 @@ pub fn format_handoff_prompt(goal: &str, manifest_opt: Option<&serde_json::Value
 
     if let Some(dead_ends) = manifest.get("known_dead_ends").and_then(|v| v.as_array()) {
         if !dead_ends.is_empty() {
-            text.push_str("Known Dead-Ends (DO NOT REPEAT):\n");
+            text.push_str("\nKnown Dead-Ends (DO NOT REPEAT):\n");
             for de in dead_ends {
                 let iss = de.get("issue").and_then(|v| v.as_str()).unwrap_or("");
                 let att = de.get("attempt").and_then(|v| v.as_str()).unwrap_or("");
@@ -150,8 +165,31 @@ pub fn format_handoff_prompt(goal: &str, manifest_opt: Option<&serde_json::Value
         }
     }
 
-    text.push_str("\n[CURRENT OBJECTIVE]\n");
-    text.push_str(goal);
+    if !has_turns {
+        if let Some(mt) = manifest.get("manifest_text").and_then(|v| v.as_str()) {
+            if !mt.trim().is_empty() {
+                text.push_str("\n");
+                text.push_str(mt.trim());
+                text.push('\n');
+            }
+        }
+    }
+
+    let manifest_goal = manifest.get("goal").and_then(|v| v.as_str()).unwrap_or("");
+    let current_objective = if !goal.trim().is_empty() {
+        goal.trim()
+    } else if !manifest_goal.trim().is_empty() {
+        manifest_goal.trim()
+    } else {
+        ""
+    };
+
+    if !current_objective.is_empty() {
+        text.push_str("\n[CURRENT OBJECTIVE]\n");
+        text.push_str(current_objective);
+        text.push('\n');
+    }
+
     text
 }
 
@@ -201,13 +239,12 @@ pub fn run_agent_interactive(
             }
         }
         "kilo" | "kilocode" => {
-            if let Some(m) = model {
-                cmd.arg("-m").arg(m);
-            }
-            if let Some(prompt) = initial_prompt {
-                if !prompt.trim().is_empty() {
-                    cmd.arg(prompt);
+            if let Some(prompt) = initial_prompt.filter(|p| !p.trim().is_empty()) {
+                cmd.arg("run").arg("-i");
+                if let Some(m) = model {
+                    cmd.arg("-m").arg(m);
                 }
+                cmd.arg(prompt);
             }
         }
         "copilot" => {
@@ -229,6 +266,14 @@ pub fn run_agent_interactive(
         }
         "cline" => {
             cmd.arg("-i");
+            if let Some(m) = model {
+                cmd.arg("-m").arg(m);
+            }
+            if let Some(prompt) = initial_prompt {
+                if !prompt.trim().is_empty() {
+                    cmd.arg(prompt);
+                }
+            }
         }
         "goose" => {
             cmd.arg("session");
@@ -243,7 +288,16 @@ pub fn run_agent_interactive(
                 }
             }
         }
-        "cursor" | "continue" | "opencode" | "plandex" | "devin" | "amazon-q" => {
+        "opencode" => {
+            if let Some(prompt) = initial_prompt.filter(|p| !p.trim().is_empty()) {
+                cmd.arg("run").arg("-i");
+                if let Some(m) = model {
+                    cmd.arg("-m").arg(m);
+                }
+                cmd.arg(prompt);
+            }
+        }
+        "cursor" | "continue" | "plandex" | "devin" | "amazon-q" => {
             if let Some(prompt) = initial_prompt {
                 if !prompt.trim().is_empty() {
                     cmd.arg(prompt);
@@ -300,7 +354,7 @@ pub async fn run_agent_streaming(
             }
             cmd.arg(prompt);
         }
-        "kilo" | "kilocode" => {
+        "kilo" | "kilocode" | "opencode" => {
             cmd.arg("run");
             if let Some(m) = model {
                 cmd.arg("-m").arg(m);
@@ -317,6 +371,9 @@ pub async fn run_agent_streaming(
             }
         }
         "cline" => {
+            if let Some(m) = model {
+                cmd.arg("-m").arg(m);
+            }
             cmd.arg(prompt);
         }
         "goose" => {
@@ -328,7 +385,7 @@ pub async fn run_agent_streaming(
                 cmd.arg("--model").arg(m);
             }
         }
-        "cursor" | "continue" | "opencode" | "plandex" | "devin" | "amazon-q" => {
+        "cursor" | "continue" | "plandex" | "devin" | "amazon-q" => {
             cmd.arg(prompt);
         }
         _ => {
@@ -387,4 +444,67 @@ pub async fn run_agent_streaming(
         .map_err(|e| format!("Wait failed on {agent_id}: {e}"))?;
 
     Ok((status.code().unwrap_or(0), accumulated))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_format_handoff_prompt_with_niodb_manifest() {
+        let manifest = json!({
+            "session_id": "sess_42",
+            "current_agent": "agy",
+            "model": "claude-3-7-sonnet",
+            "goal": "Refactor router endpoints",
+            "turn_count": 2,
+            "files_touched": ["src/api.rs", "src/auth.rs"],
+            "recent_turns": [
+                {
+                    "agent": "agy",
+                    "model": "claude-3-7-sonnet",
+                    "summary": "Added route for sessions"
+                }
+            ],
+            "known_dead_ends": [
+                {
+                    "issue": "Lock starvation",
+                    "attempt": "Global Mutex",
+                    "why": "Blocked async loop"
+                }
+            ],
+            "manifest_text": "# Session Manifest: Auth\nGoal: Refactor router endpoints"
+        });
+
+        let prompt = format_handoff_prompt("Review implementation", Some(&manifest));
+        assert!(prompt.contains("[NIO AGENT CONTEXT HANDOFF]"));
+        assert!(prompt.contains("Session: sess_42"));
+        assert!(prompt.contains("Previous Agent: agy"));
+        assert!(prompt.contains("Added route for sessions"));
+        assert!(prompt.contains("src/api.rs"));
+        assert!(prompt.contains("Lock starvation"));
+        assert!(prompt.contains("[CURRENT OBJECTIVE]"));
+        assert!(prompt.contains("Review implementation"));
+    }
+
+    #[test]
+    fn test_format_handoff_prompt_manifest_text_fallback() {
+        let manifest = json!({
+            "session_id": "sess_99",
+            "current_agent": "codex",
+            "model": "gpt-4o",
+            "goal": "Build database schema",
+            "turn_count": 1,
+            "files_touched": [],
+            "recent_turns": [],
+            "known_dead_ends": [],
+            "manifest_text": "# Session Manifest: DB\nTotal Turns: 1\nRecent History:\n- [codex] Initialized tables"
+        });
+
+        let prompt = format_handoff_prompt("", Some(&manifest));
+        assert!(prompt.contains("Session: sess_99"));
+        assert!(prompt.contains("Initialized tables"));
+        assert!(prompt.contains("Build database schema"));
+    }
 }

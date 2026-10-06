@@ -61,6 +61,45 @@ impl NioDbClient {
         }
     }
 
+    pub async fn ensure_healthy(&self) -> bool {
+        if self.is_healthy().await {
+            return true;
+        }
+        let binary_candidates = [
+            PathBuf::from("../nio-db/target/release/niodb"),
+            PathBuf::from("./nio-db/target/release/niodb"),
+        ];
+        let mut bin = None;
+        for c in &binary_candidates {
+            if c.is_file() {
+                bin = Some(c.clone());
+                break;
+            }
+        }
+        if bin.is_none() {
+            bin = crate::agent_runner::find_binary("niodb")
+                .or_else(|| crate::agent_runner::find_binary("nio-db"));
+        }
+        if let Some(b) = bin {
+            let data_dir = if PathBuf::from("../nio-db/nio-db").is_dir() {
+                PathBuf::from("../nio-db/nio-db")
+            } else {
+                PathBuf::from("./nio-db")
+            };
+            let _ = std::process::Command::new(b)
+                .arg("serve")
+                .arg("--dir")
+                .arg(data_dir)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn();
+            tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+            return self.is_healthy().await;
+        }
+        false
+    }
+
     pub async fn create_session(
         &self,
         title: &str,
@@ -395,6 +434,31 @@ impl NioDbClient {
             .await
             .map_err(|e| format!("Failed to parse complete task response: {e}"))
     }
+
+    #[allow(dead_code)]
+    pub async fn get_dead_ends(&self, id: &str) -> Result<Vec<Value>, String> {
+        let url = format!("{}/api/v1/sessions/{}/dead-ends", self.base_url, id);
+        let resp = self
+            .client
+            .get(&url)
+            .headers(self.headers())
+            .send()
+            .await
+            .map_err(|e| format!("Failed to get dead-ends: {e}"))?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(format!("NioDB error ({status}): {text}"));
+        }
+
+        let val: Value = resp.json().await.map_err(|e| format!("Failed to parse dead-ends response: {e}"))?;
+        if let Some(items) = val.get("dead_ends").and_then(|i| i.as_array()) {
+            Ok(items.clone())
+        } else {
+            Ok(vec![])
+        }
+    }
 }
 
 fn find_token() -> Option<String> {
@@ -408,13 +472,21 @@ fn find_token() -> Option<String> {
     let mut candidate_paths = vec![
         PathBuf::from("./nio-db/client-token"),
         PathBuf::from("./nio-db/secret-token"),
+        PathBuf::from("../nio-db/nio-db/client-token"),
+        PathBuf::from("../nio-db/nio-db/secret-token"),
+        PathBuf::from("../nio-db/client-token"),
+        PathBuf::from("../nio-db/secret-token"),
     ];
 
     if let Ok(home) = env::var("HOME") {
         candidate_paths.push(PathBuf::from(&home).join(".nio-db/client-token"));
         candidate_paths.push(PathBuf::from(&home).join(".nio-db/secret-token"));
+        candidate_paths.push(PathBuf::from(&home).join("n-o/nio-db/nio-db/client-token"));
+        candidate_paths.push(PathBuf::from(&home).join("n-o/nio-db/nio-db/secret-token"));
         candidate_paths.push(PathBuf::from(&home).join("nio-labs/nio-db/nio-db/client-token"));
         candidate_paths.push(PathBuf::from(&home).join("nio-labs/nio-db/nio-db/secret-token"));
+        candidate_paths.push(PathBuf::from(&home).join(".nio/client-token"));
+        candidate_paths.push(PathBuf::from(&home).join(".nio/secret-token"));
     }
 
     for path in candidate_paths {
