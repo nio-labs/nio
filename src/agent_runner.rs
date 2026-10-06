@@ -1,9 +1,11 @@
 //! Agent subprocess runner and stream manager for Nio.
 //!
-//! Wraps real installed coding agents (agy, codex, claude, opencode),
-//! passes context handoffs from NioDB, and streams execution live to the terminal.
+//! Wraps and auto-detects 16+ real installed coding agents (agy, codex, claude, kilo,
+//! kilocode, copilot, gemini, opencode, cline, goose, aider, cursor, continue, plandex,
+//! devin, amazon-q), passes context handoffs from NioDB, and streams execution live.
 
 use std::env;
+use std::fs;
 use std::io::{self, Write};
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -24,7 +26,19 @@ pub fn detect_agents() -> Vec<DetectedAgent> {
         ("agy", "Google Antigravity (agy)"),
         ("codex", "OpenAI Codex CLI"),
         ("claude", "Anthropic Claude Code"),
+        ("kilo", "Kilo Code CLI (kilo)"),
+        ("kilocode", "Kilo Code Engine (kilocode)"),
+        ("copilot", "GitHub Copilot CLI"),
+        ("gemini", "Google Gemini CLI"),
         ("opencode", "OpenCode Assistant"),
+        ("cline", "Cline Autonomous Agent"),
+        ("goose", "Block Goose Agent"),
+        ("aider", "Aider AI Pair Programmer"),
+        ("cursor", "Cursor Agent CLI"),
+        ("continue", "Continue Dev CLI"),
+        ("plandex", "Plandex AI Engine"),
+        ("devin", "Devin CLI"),
+        ("amazon-q", "Amazon Q Developer"),
     ];
 
     let mut result = Vec::new();
@@ -42,6 +56,7 @@ pub fn detect_agents() -> Vec<DetectedAgent> {
 }
 
 pub fn find_binary(name: &str) -> Option<PathBuf> {
+    // 1. Check PATH environment variable
     if let Ok(path_var) = env::var("PATH") {
         for dir in env::split_paths(&path_var) {
             let candidate = dir.join(name);
@@ -51,18 +66,36 @@ pub fn find_binary(name: &str) -> Option<PathBuf> {
         }
     }
 
+    // 2. Check standard system directories
     let mut fallbacks = Vec::new();
     if let Ok(home) = env::var("HOME") {
-        fallbacks.push(PathBuf::from(&home).join(".local/bin").join(name));
-        fallbacks.push(PathBuf::from(&home).join(".cargo/bin").join(name));
-        fallbacks.push(PathBuf::from("/usr/local/bin").join(name));
-        fallbacks.push(PathBuf::from("/usr/bin").join(name));
+        let home_path = PathBuf::from(&home);
+        fallbacks.push(home_path.join(".local/bin").join(name));
+        fallbacks.push(home_path.join(".cargo/bin").join(name));
+
+        // Scan NVM node versions directory (e.g. ~/.nvm/versions/node/v*/bin)
+        let nvm_node_dir = home_path.join(".nvm/versions/node");
+        if let Ok(entries) = fs::read_dir(&nvm_node_dir) {
+            for entry in entries.flatten() {
+                let bin_candidate = entry.path().join("bin").join(name);
+                if bin_candidate.is_file() {
+                    return Some(bin_candidate);
+                }
+            }
+        }
     }
+    fallbacks.push(PathBuf::from("/usr/local/bin").join(name));
+    fallbacks.push(PathBuf::from("/usr/bin").join(name));
 
     for candidate in fallbacks {
         if candidate.is_file() {
             return Some(candidate);
         }
+    }
+
+    // Special alias check for amazon-q ("q")
+    if name == "amazon-q" {
+        return find_binary("q");
     }
 
     None
@@ -129,7 +162,7 @@ pub fn run_agent_interactive(
     initial_prompt: Option<&str>,
 ) -> Result<i32, String> {
     let binary = find_binary(agent_id)
-        .ok_or_else(|| format!("Binary for '{agent_id}' not found in PATH or ~/.local/bin"))?;
+        .ok_or_else(|| format!("Binary for '{agent_id}' not found in PATH or standard agent locations"))?;
 
     let mut cmd = std::process::Command::new(binary);
     cmd.stdin(Stdio::inherit())
@@ -167,7 +200,50 @@ pub fn run_agent_interactive(
                 }
             }
         }
-        "opencode" => {
+        "kilo" | "kilocode" => {
+            if let Some(m) = model {
+                cmd.arg("-m").arg(m);
+            }
+            if let Some(prompt) = initial_prompt {
+                if !prompt.trim().is_empty() {
+                    cmd.arg(prompt);
+                }
+            }
+        }
+        "copilot" => {
+            if let Some(prompt) = initial_prompt {
+                if !prompt.trim().is_empty() {
+                    cmd.arg("-p").arg(prompt);
+                }
+            }
+        }
+        "gemini" => {
+            if let Some(m) = model {
+                cmd.arg("-m").arg(m);
+            }
+            if let Some(prompt) = initial_prompt {
+                if !prompt.trim().is_empty() {
+                    cmd.arg("-i").arg(prompt);
+                }
+            }
+        }
+        "cline" => {
+            cmd.arg("-i");
+        }
+        "goose" => {
+            cmd.arg("session");
+        }
+        "aider" => {
+            if let Some(m) = model {
+                cmd.arg("--model").arg(m);
+            }
+            if let Some(prompt) = initial_prompt {
+                if !prompt.trim().is_empty() {
+                    cmd.arg("--message").arg(prompt);
+                }
+            }
+        }
+        "cursor" | "continue" | "opencode" | "plandex" | "devin" | "amazon-q" => {
             if let Some(prompt) = initial_prompt {
                 if !prompt.trim().is_empty() {
                     cmd.arg(prompt);
@@ -198,7 +274,7 @@ pub async fn run_agent_streaming(
     tag: Option<&str>,
 ) -> Result<(i32, String), String> {
     let binary = find_binary(agent_id)
-        .ok_or_else(|| format!("Binary for '{agent_id}' not found in PATH or ~/.local/bin"))?;
+        .ok_or_else(|| format!("Binary for '{agent_id}' not found in PATH or standard agent locations"))?;
 
     let mut cmd = Command::new(&binary);
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
@@ -224,7 +300,35 @@ pub async fn run_agent_streaming(
             }
             cmd.arg(prompt);
         }
-        "opencode" => {
+        "kilo" | "kilocode" => {
+            cmd.arg("run");
+            if let Some(m) = model {
+                cmd.arg("-m").arg(m);
+            }
+            cmd.arg(prompt);
+        }
+        "copilot" => {
+            cmd.arg("-p").arg(prompt);
+        }
+        "gemini" => {
+            cmd.arg("-p").arg(prompt);
+            if let Some(m) = model {
+                cmd.arg("-m").arg(m);
+            }
+        }
+        "cline" => {
+            cmd.arg(prompt);
+        }
+        "goose" => {
+            cmd.arg("run").arg(prompt);
+        }
+        "aider" => {
+            cmd.arg("--message").arg(prompt);
+            if let Some(m) = model {
+                cmd.arg("--model").arg(m);
+            }
+        }
+        "cursor" | "continue" | "opencode" | "plandex" | "devin" | "amazon-q" => {
             cmd.arg(prompt);
         }
         _ => {

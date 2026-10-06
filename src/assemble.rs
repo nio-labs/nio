@@ -356,14 +356,27 @@ async fn run_interactive_custom_roster(db: &NioDbClient) -> Result<(), String> {
         return Err("Swarm goal cannot be empty.".to_string());
     }
 
-    println!("\n  \x1b[1m2. Select Planner Agent:\x1b[0m (1: agy, 2: codex, 3: claude) [1]:");
-    let planner = prompt_agent_choice("agy");
+    let detected = detect_agents();
+    let available: Vec<String> = if !detected.is_empty() {
+        detected.iter().map(|a| a.id.clone()).collect()
+    } else {
+        vec!["agy".into(), "codex".into(), "claude".into(), "kilo".into(), "copilot".into()]
+    };
 
-    println!("\n  \x1b[1m3. Select Coder Agent:\x1b[0m (1: agy, 2: codex, 3: claude) [2]:");
-    let coder = prompt_agent_choice("codex");
+    println!("\n  Available Detected Agents:");
+    for (idx, id) in available.iter().enumerate() {
+        println!("    [{}] {}", idx + 1, id);
+    }
 
-    println!("\n  \x1b[1m4. Select Tester Agent:\x1b[0m (1: agy, 2: codex, 3: claude) [3]:");
-    let tester = prompt_agent_choice("claude");
+    println!("\n  \x1b[1m2. Select Planner Agent:\x1b[0m");
+    let planner = prompt_agent_choice(&available, "agy");
+
+    println!("\n  \x1b[1m3. Select Coder Agent:\x1b[0m");
+    let coder_fallback = if available.contains(&"kilo".to_string()) { "kilo" } else { "codex" };
+    let coder = prompt_agent_choice(&available, coder_fallback);
+
+    println!("\n  \x1b[1m4. Select Tester Agent:\x1b[0m");
+    let tester = prompt_agent_choice(&available, "claude");
 
     println!("\n  \x1b[1m5. Select Base Model:\x1b[0m [1: claude-3-7-sonnet]:");
     let model = DEFAULT_MODELS[0].0;
@@ -371,18 +384,21 @@ async fn run_interactive_custom_roster(db: &NioDbClient) -> Result<(), String> {
     create_and_run_swarm(db, goal, Some(model), Some(&planner), Some(&coder), Some(&tester)).await
 }
 
-fn prompt_agent_choice(fallback: &str) -> String {
-    print!("  > ");
+fn prompt_agent_choice(available: &[String], fallback: &str) -> String {
+    print!("  Select agent [{fallback}]: ");
     let _ = io::stdout().flush();
     let mut input = String::new();
     let _ = io::stdin().read_line(&mut input);
-    match input.trim() {
-        "1" => "agy".to_string(),
-        "2" => "codex".to_string(),
-        "3" => "claude".to_string(),
-        "4" => "opencode".to_string(),
-        other if !other.is_empty() => other.to_string(),
-        _ => fallback.to_string(),
+    let trimmed = input.trim();
+    if let Ok(idx) = trimmed.parse::<usize>() {
+        if idx >= 1 && idx <= available.len() {
+            return available[idx - 1].clone();
+        }
+    }
+    if !trimmed.is_empty() {
+        trimmed.to_string()
+    } else {
+        fallback.to_string()
     }
 }
 
