@@ -1,7 +1,11 @@
+mod agent_runner;
+mod assemble;
+mod bridge;
 mod documents;
 mod extra_tools;
 mod ide;
 mod inline_queue;
+mod niodb;
 mod persona;
 mod plugin_process;
 mod plugins;
@@ -929,6 +933,8 @@ async fn run() -> Result<(), CliError> {
                 }
                 "persona" => persona::command(&options.prompt).map_err(CliError::from),
                 "ide" => ide::command(&options.prompt).await.map_err(CliError::from),
+                "bridge" => bridge::command(&options).await.map_err(CliError::from),
+                "assemble" => assemble::command(&options).await.map_err(CliError::from),
                 "config" => config_command(&options),
                 "doctor" => doctor_command(&options).await,
                 "completions" => completions_command(&options),
@@ -1020,6 +1026,8 @@ const SUBCOMMANDS: &[&str] = &[
     "completions",
     "help",
     "version",
+    "bridge",
+    "assemble",
 ];
 
 fn default_options(command: &str) -> Options {
@@ -1132,6 +1140,8 @@ fn parse_args(args: Vec<String>) -> Result<Options, String> {
         Some("config") => "config".to_string(),
         Some("doctor") => "doctor".to_string(),
         Some("completions") => "completions".to_string(),
+        Some("bridge") => "bridge".to_string(),
+        Some("assemble") => "assemble".to_string(),
         Some("--plugins") => {
             keep_first = true;
             "plugins".to_string()
@@ -1328,6 +1338,8 @@ fn parse_args(args: Vec<String>) -> Result<Options, String> {
                         | "config"
                         | "doctor"
                         | "completions"
+                        | "bridge"
+                        | "assemble"
                 ) {
                     Some(command)
                 } else {
@@ -1335,7 +1347,7 @@ fn parse_args(args: Vec<String>) -> Result<Options, String> {
                 };
                 return Ok(help_options(topic));
             }
-            _ if command == "persona" => {
+            _ if matches!(command.as_str(), "bridge" | "assemble" | "persona") => {
                 prompt.push(arg);
             }
             _ if arg.starts_with('-') => return Err(format!("unknown option '{arg}'")),
@@ -10762,6 +10774,14 @@ const HELP_USAGE: &[(&str, &str)] = &[
     ),
     ("  nio provider", "Configure a provider interactively"),
     (
+        "  nio bridge [OPTIONS]",
+        "Stream coding agents with zero-loss context handoff via NioDB",
+    ),
+    (
+        "  nio assemble [OPTIONS]",
+        "Autonomous multi-agent swarm conductor (Planner, Coder, Tester)",
+    ),
+    (
         "  nio sessions [list|show <ID>|delete <ID>]",
         "Manage saved conversation sessions",
     ),
@@ -11767,6 +11787,12 @@ fn print_help(topic: Option<&str>) -> Result<(), String> {
             println!("  nio completions bash > ~/.local/share/bash-completion/completions/nio");
             println!("  nio completions zsh  > ~/.zfunc/_nio   (add ~/.zfunc to fpath)");
             println!("  nio completions fish > ~/.config/fish/completions/nio.fish");
+        }
+        Some("bridge") => {
+            bridge::print_bridge_help();
+        }
+        Some("assemble") => {
+            assemble::print_assemble_help();
         }
         Some("help") => {
             println!("Usage:");
