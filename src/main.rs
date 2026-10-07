@@ -7881,7 +7881,15 @@ fn read_interactive_line_raw(
                 let width = terminal::size()
                     .map(|(width, _)| width as usize)
                     .unwrap_or(80);
-                let (rendered_input, _, _) = render_input_text(prompt, &input, width);
+                let (mut rendered_input, _, _) = render_input_text(prompt, &input, width);
+                let colored_prompt = if prompt == "🤖 nio> " {
+                    "\x1b[1;36m🤖 nio>\x1b[0m "
+                } else if prompt == "$ " {
+                    "\x1b[1;36m$ \x1b[0m"
+                } else {
+                    prompt
+                };
+                rendered_input = rendered_input.replacen(prompt, colored_prompt, 1);
                 write!(stdout, "{rendered_input}\r\n")
                     .map_err(|e| format!("writing prompt: {e}"))?;
                 stdout.flush().map_err(|e| format!("writing prompt: {e}"))?;
@@ -8451,7 +8459,17 @@ fn draw_input(
     let width = terminal::size()
         .map(|(width, _)| width as usize)
         .unwrap_or(80);
-    let (rendered, rows, positions) = render_input_text(prompt, input, width);
+    let (mut rendered, rows, positions) = render_input_text(prompt, input, width);
+    let colored_prompt = if prompt == "🤖 nio> " {
+        "\x1b[1;36m🤖 nio>\x1b[0m "
+    } else if prompt == "🤖 edit> " {
+        "\x1b[1;35m🤖 edit>\x1b[0m "
+    } else if prompt == "$ " {
+        "\x1b[1;36m$ \x1b[0m"
+    } else {
+        prompt
+    };
+    rendered = rendered.replacen(prompt, colored_prompt, 1);
     write!(stdout, "{rendered}").map_err(|error| format!("writing prompt: {error}"))?;
     let (cursor_row, cursor_column) = positions
         .get(cursor.min(positions.len().saturating_sub(1)))
