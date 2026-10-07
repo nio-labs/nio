@@ -162,8 +162,7 @@ pub fn run(root: &Path, name: &str, args: &[String]) -> Result<String, String> {
         {
             "py" => "python3".to_string(),
             "sh" => "bash".to_string(),
-            "js" => "node".to_string(),
-            "ts" => "npx ts-node".to_string(),
+            "js" | "ts" => resolve_js_ts_runner(),
             "rb" => "ruby".to_string(),
             _ => "bash".to_string(),
         }
@@ -294,4 +293,74 @@ pub fn command(root: &Path, args: &[String]) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+fn find_nio_js() -> Option<PathBuf> {
+    if let Some(bin) = crate::agent_runner::find_binary("nio-js") {
+        return Some(bin);
+    }
+    // Check sibling workspace directories during development
+    for rel in &[
+        "../nio-js/target/release/nio-js",
+        "../nio-js/target/debug/nio-js",
+    ] {
+        let p = PathBuf::from(rel);
+        if p.is_file() {
+            if let Ok(canon) = p.canonicalize() {
+                return Some(canon);
+            }
+        }
+    }
+    None
+}
+
+fn install_nio_js() -> Option<PathBuf> {
+    eprintln!("[nio] nio-js not found. Installing standalone nio-js runtime...");
+    if cfg!(target_os = "windows") {
+        let _ = Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-Command",
+                "irm https://raw.githubusercontent.com/nio-labs/nio-js/main/install.ps1 | iex",
+            ])
+            .status();
+    } else {
+        let _ = Command::new("sh")
+            .arg("-c")
+            .arg(
+                "curl -fsSL https://raw.githubusercontent.com/nio-labs/nio-js/main/install.sh | sh",
+            )
+            .status();
+    }
+    crate::agent_runner::find_binary("nio-js")
+}
+
+fn resolve_js_ts_runner() -> String {
+    // 1. Check if nio-js binary is already available locally or in PATH
+    if let Some(bin) = find_nio_js() {
+        return format!("{} exec", bin.display());
+    }
+
+    // 2. Check if npx is available to run via @nio-labs/nio-js on-demand
+    if crate::agent_runner::find_binary("npx").is_some() {
+        return "npx -y @nio-labs/nio-js exec".to_string();
+    }
+
+    // 3. Attempt automated installation of standalone nio-js
+    if let Some(bin) = install_nio_js() {
+        return format!("{} exec", bin.display());
+    }
+
+    // 4. Fallback runtimes if available
+    if let Some(bin) = crate::agent_runner::find_binary("bun") {
+        return format!("{} run", bin.display());
+    }
+    if let Some(bin) = crate::agent_runner::find_binary("deno") {
+        return format!("{} run -A", bin.display());
+    }
+    if let Some(bin) = crate::agent_runner::find_binary("node") {
+        return bin.display().to_string();
+    }
+
+    "nio-js exec".to_string()
 }
