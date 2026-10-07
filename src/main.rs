@@ -1541,32 +1541,6 @@ fn has_leaked_tool_call(text: &str) -> bool {
         || lower.contains("<function_call")
 }
 
-fn is_potential_leaked_tool_call_stream(answer: &str) -> bool {
-    let trimmed = answer.trim_start();
-    if trimmed.is_empty() {
-        return false;
-    }
-    if trimmed.starts_with("<tool_call")
-        || trimmed.starts_with("<function=")
-        || trimmed.starts_with("<function_call")
-        || trimmed.starts_with("<function name=")
-    {
-        return true;
-    }
-    if trimmed.starts_with('<') && trimmed.len() < 16 {
-        for prefix in [
-            "<tool_call",
-            "<function=",
-            "<function_call",
-            "<function name=",
-        ] {
-            if prefix.starts_with(trimmed) {
-                return true;
-            }
-        }
-    }
-    false
-}
 
 fn parse_parameter_value(val_str: &str) -> Value {
     let trimmed = val_str.trim();
@@ -1913,7 +1887,6 @@ term-132348-2
 </tool_call>
 "#;
         assert!(super::has_leaked_tool_call(text));
-        assert!(super::is_potential_leaked_tool_call_stream(text));
         let calls = super::parse_leaked_tool_calls(text);
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].name, "terminal_read");
@@ -3625,6 +3598,7 @@ fn process_sse_line(
     line: &str,
     options: &Options,
     answer: &mut String,
+    emitted_len: &mut usize,
     tools: &mut std::collections::BTreeMap<usize, PendingToolCall>,
     response_started: &mut bool,
     formatter: &mut MarkdownFormatter,
@@ -3650,8 +3624,25 @@ fn process_sse_line(
                 return Err("response text exceeded the 2 MiB limit".into());
             }
             answer.push_str(&content);
-            if !is_potential_leaked_tool_call_stream(answer) {
-                let formatted = formatter.push(&content);
+            
+            let mut leak_start = None;
+            let mut check_from = 0;
+            while let Some(idx) = answer[check_from..].find('<') {
+                let tail = &answer[check_from + idx..];
+                for prefix in ["<tool_call", "<function=", "<function_call", "<function name="] {
+                    if tail.starts_with(prefix) || prefix.starts_with(tail) {
+                        leak_start = Some(check_from + idx);
+                        break;
+                    }
+                }
+                if leak_start.is_some() { break; }
+                check_from += idx + 1;
+            }
+
+            let allowed_len = leak_start.unwrap_or(answer.len());
+            if allowed_len > *emitted_len {
+                let to_emit = &answer[*emitted_len..allowed_len];
+                let formatted = formatter.push(to_emit);
                 if !formatted.is_empty() {
                     if !*response_started && !strip_terminal_ansi(&formatted).trim().is_empty() {
                         emit_assistant_start(options)?;
@@ -3659,6 +3650,7 @@ fn process_sse_line(
                     }
                     emit_text(options, &formatted)?;
                 }
+                *emitted_len = allowed_len;
             }
         }
         for partial in choice.delta.tool_calls {
@@ -3693,6 +3685,7 @@ fn process_json_completion(
     payload: Value,
     options: &Options,
     answer: &mut String,
+    emitted_len: &mut usize,
     tools: &mut std::collections::BTreeMap<usize, PendingToolCall>,
     response_started: &mut bool,
     formatter: &mut MarkdownFormatter,
@@ -3715,13 +3708,33 @@ fn process_json_completion(
     {
         if !content.is_empty() {
             answer.push_str(content);
-            let formatted = formatter.push(content);
-            if !formatted.is_empty() {
-                if !*response_started && !strip_terminal_ansi(&formatted).trim().is_empty() {
-                    emit_assistant_start(options)?;
-                    *response_started = true;
+            
+            let mut leak_start = None;
+            let mut check_from = 0;
+            while let Some(idx) = answer[check_from..].find('<') {
+                let tail = &answer[check_from + idx..];
+                for prefix in ["<tool_call", "<function=", "<function_call", "<function name="] {
+                    if tail.starts_with(prefix) || prefix.starts_with(tail) {
+                        leak_start = Some(check_from + idx);
+                        break;
+                    }
                 }
-                emit_text(options, &formatted)?;
+                if leak_start.is_some() { break; }
+                check_from += idx + 1;
+            }
+
+            let allowed_len = leak_start.unwrap_or(answer.len());
+            if allowed_len > *emitted_len {
+                let to_emit = &answer[*emitted_len..allowed_len];
+                let formatted = formatter.push(to_emit);
+                if !formatted.is_empty() {
+                    if !*response_started && !strip_terminal_ansi(&formatted).trim().is_empty() {
+                        emit_assistant_start(options)?;
+                        *response_started = true;
+                    }
+                    emit_text(options, &formatted)?;
+                }
+                *emitted_len = allowed_len;
             }
         }
     }
@@ -5631,6 +5644,7 @@ async fn run_agent_turn_inner(
             let mut buffer = Vec::new();
             let mut received = 0usize;
             let mut finished = None;
+            let mut emitted_len = 0usize;
             while let Some(part) = stream.next().await {
                 let bytes = part.map_err(|e| format!("response stream failed: {e}"))?;
                 received = received.saturating_add(bytes.len());
@@ -5647,6 +5661,7 @@ async fn run_agent_turn_inner(
                         &line,
                         options,
                         &mut answer,
+                        &mut emitted_len,
                         &mut pending_tools,
                         &mut response_started,
                         &mut formatter,
@@ -5662,6 +5677,7 @@ async fn run_agent_turn_inner(
                     &line,
                     options,
                     &mut answer,
+                    &mut emitted_len,
                     &mut pending_tools,
                     &mut response_started,
                     &mut formatter,
@@ -5678,10 +5694,12 @@ async fn run_agent_turn_inner(
             let payload =
                 serde_json::from_slice::<Value>(&read_http_body(response, RESPONSE_LIMIT).await?)
                     .map_err(|error| format!("invalid provider completion response: {error}"))?;
+            let mut emitted_len = 0;
             process_json_completion(
                 payload,
                 options,
                 &mut answer,
+                &mut emitted_len,
                 &mut pending_tools,
                 &mut response_started,
                 &mut formatter,
@@ -11977,7 +11995,8 @@ mod markdown_tests {
         let mut tools = std::collections::BTreeMap::new();
         let mut started = false;
         let mut formatter = MarkdownFormatter::new(true);
-        process_json_completion(json!({"choices":[{"finish_reason":"tool_calls","message":{"content":"\n\n ","tool_calls":[{"id":"t1","function":{"name":"git_status","arguments":"{}"}}]}}]}), &options, &mut answer, &mut tools, &mut started, &mut formatter).unwrap();
+        let mut emitted_len = 0;
+        process_json_completion(json!({"choices":[{"finish_reason":"tool_calls","message":{"content":"\n\n ","tool_calls":[{"id":"t1","function":{"name":"git_status","arguments":"{}"}}]}}]}), &options, &mut answer, &mut emitted_len, &mut tools, &mut started, &mut formatter).unwrap();
         assert!(!started);
         assert_eq!(tools.len(), 1);
         assert_eq!(formatter.finish(), "");
