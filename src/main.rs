@@ -6843,7 +6843,7 @@ async fn interactive(mut options: Options) -> Result<(), String> {
             continue;
         }
         if !command_mode && (input == ":setting" || input == ":settings") {
-            if let Err(error) = configure_settings() {
+            if let Err(error) = configure_settings().await {
                 eprintln!("nio: {error}");
             }
             continue;
@@ -7385,11 +7385,7 @@ fn print_prompt_divider() -> Result<(), String> {
         .map_err(|error| format!("writing prompt divider: {error}"))
 }
 
-const COMMANDS: [(&str, &str); 27] = [
-    (
-        ":approval",
-        "Toggle automatic approval for writes and commands",
-    ),
+const COMMANDS: [(&str, &str); 19] = [
     (":bash", "Switch to a direct shell prompt"),
     (":clear", "Clear conversation history"),
     (":continue", "Continue the unfinished task in this session"),
@@ -7398,26 +7394,14 @@ const COMMANDS: [(&str, &str); 27] = [
     (":help", "Show available commands"),
     (":history", "Switch to a saved conversation"),
     (":ide", "Manage NioDE server daemon"),
-    (":mode", "Choose Ask, Plan, or Build mode"),
     (":model", "Switch model"),
-    (
-        ":mouse",
-        "Toggle click-to-position input; native wheel scrolling is disabled while on",
-    ),
     (":path", "Show the current project directory"),
-    (
-        ":persona",
-        "Configure assistant persona, name, and custom instructions",
-    ),
     (
         ":plugins",
         "Manage optional file readers and PDF OCR languages",
     ),
-    (":provider", "Configure model providers"),
-    (":proxy", "Route provider requests through a proxy"),
     (":queue", "List/edit/remove/pause/resume queued messages"),
     (":quit", "Exit Nio"),
-    (":reasoning", "Set reasoning effort"),
     (":sessions", "Switch to a saved session"),
     (
         ":setting",
@@ -7429,7 +7413,6 @@ const COMMANDS: [(&str, &str); 27] = [
         ":stop",
         "Stop the current response; preserve queued messages",
     ),
-    (":theme", "Choose the terminal color theme"),
     (":undo", "Revert last file change made by Nio"),
 ];
 
@@ -10003,8 +9986,15 @@ pub(crate) fn select_menu_option_b(
     result
 }
 
-fn configure_settings() -> Result<(), String> {
-    if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
+enum SettingsAction {
+    None,
+    ConfigureProvider,
+    ConfigureProxy,
+    ConfigurePersona,
+}
+
+async fn configure_settings() -> Result<(), String> {
+    let action = if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
         let mut config = load_user_config()?;
         let followups_enabled = config.follow_up_suggestions.unwrap_or(false);
         let mode = configured_agent_mode(&config);
@@ -10033,7 +10023,11 @@ fn configure_settings() -> Result<(), String> {
         let progress_style = configured_progress_style(&config);
         println!("  6) Progress style: {progress_style}");
         println!("  7) Color theme: {}", configured_theme(&config).name);
-        print!("Choose a setting [1-8] or Enter to cancel: ");
+        println!("  8) Mouse support for click-to-position: {}", if config.mouse_input.unwrap_or(false) { "On" } else { "Off" });
+        println!("  9) Model provider");
+        println!(" 10) Proxy URL");
+        println!(" 11) Assistant persona");
+        print!("Choose a setting [1-11] or Enter to cancel: ");
         io::stdout()
             .flush()
             .map_err(|e| format!("flushing settings: {e}"))?;
@@ -10042,15 +10036,15 @@ fn configure_settings() -> Result<(), String> {
             .read_line(&mut selection)
             .map_err(|e| format!("reading settings choice: {e}"))?;
         match selection.trim() {
-            "1" => configure_request_interval(&mut config),
+            "1" => { configure_request_interval(&mut config)?; SettingsAction::None }
             "2" => {
                 config.follow_up_suggestions = Some(!followups_enabled);
                 save_user_config(&config)?;
-                Ok(())
+                SettingsAction::None
             }
-            "3" => configure_agent_mode(),
-            "4" => configure_reasoning_effort(),
-            "5" => toggle_auto_approval(),
+            "3" => { configure_agent_mode()?; SettingsAction::None }
+            "4" => { configure_reasoning_effort()?; SettingsAction::None }
+            "5" => { toggle_auto_approval()?; SettingsAction::None }
             "6" => {
                 let next_style = if progress_style == "inline" {
                     "compact"
@@ -10059,18 +10053,38 @@ fn configure_settings() -> Result<(), String> {
                 };
                 config.progress_style = Some(next_style.to_string());
                 save_user_config(&config)?;
-                Ok(())
+                SettingsAction::None
             }
-            "7" => configure_theme(),
+            "7" => { configure_theme()?; SettingsAction::None }
             "8" => {
                 config.mouse_input = Some(!config.mouse_input.unwrap_or(false));
-                save_user_config(&config)
+                save_user_config(&config)?;
+                SettingsAction::None
             }
-            _ => Ok(()),
+            "9" => SettingsAction::ConfigureProvider,
+            "10" => SettingsAction::ConfigureProxy,
+            "11" => SettingsAction::ConfigurePersona,
+            _ => SettingsAction::None,
         }
     } else {
-        configure_settings_interactive()
+        configure_settings_interactive()?
+    };
+
+    match action {
+        SettingsAction::ConfigureProvider => {
+            configure_provider().await?;
+        }
+        SettingsAction::ConfigureProxy => {
+            configure_proxy().await?;
+        }
+        SettingsAction::ConfigurePersona => {
+            if let Err(error) = persona::command(&[]) {
+                eprintln!("nio: {error}");
+            }
+        }
+        SettingsAction::None => {}
     }
+    Ok(())
 }
 
 fn configure_settings_interactive() -> Result<(), String> {
@@ -10931,25 +10945,12 @@ const HELP_INTERACTIVE: &[(&str, &str)] = &[
         "Manage optional file readers and PDF OCR languages",
     ),
     (":snippets", "Manage and run custom snippets and functions"),
-    (
-        ":persona",
-        "Configure assistant persona, name, and custom instructions",
-    ),
     (":ide", "Manage NioDE server daemon"),
     (":clear", "Clear conversation history"),
     (":diff", "Show git diff of project changes"),
     (":undo", "Revert last file change made by Nio"),
     (":help", "List commands"),
     (":model", "Switch the active model"),
-    (":mode", "Choose Ask, Plan, or Build mode"),
-    (
-        ":approval",
-        "Toggle automatic approval for writes and commands",
-    ),
-    (":reasoning", "Set reasoning effort"),
-    (":theme", "Choose the terminal color theme"),
-    (":provider", "Add or update a provider"),
-    (":proxy", "Route model requests through a proxy"),
     (":path", "Show the current project directory"),
     (
         ":setting",
