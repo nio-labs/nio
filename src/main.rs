@@ -7178,7 +7178,7 @@ fn recent_session_lines(history: &[Value], width: usize, row_budget: usize) -> V
             .replace("\r\n", "\n")
             .replace('\r', "\n");
         let (prefix, text) = match role {
-            Some("user") => ("🤖 nio> ", content),
+            Some("user") => ("\x1b[1;36m🤖 nio>\x1b[0m ", content),
             Some("assistant") => {
                 let mut formatter = MarkdownFormatter::new(true);
                 formatter.wrap_width = width.saturating_sub(1).max(RESPONSE_INDENT_WIDTH + 2);

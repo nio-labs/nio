@@ -393,7 +393,13 @@ impl Live {
         } else {
             "🤖 queue> "
         };
-        let (input, _, positions) = render_input_text(prompt, &self.draft.input, width);
+        let colored_prompt = if self.editing.is_some() {
+            "\x1b[1;35m🤖 edit>\x1b[0m "
+        } else {
+            "\x1b[1;36m🤖 queue>\x1b[0m "
+        };
+        let (mut input, _, positions) = render_input_text(prompt, &self.draft.input, width);
+        input = input.replacen(prompt, colored_prompt, 1);
         let position = positions.get(self.draft.cursor).copied().unwrap_or((0, 0));
         let input_rows = input.split("\r\n").collect::<Vec<_>>();
         let first = usize::from(position.0).saturating_sub(2);
