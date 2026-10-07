@@ -421,7 +421,13 @@ static MESSAGE_QUEUE: Mutex<VecDeque<String>> = Mutex::new(VecDeque::new());
 static QUEUE_PAUSED: AtomicBool = AtomicBool::new(false);
 
 macro_rules! queue_println {
-    ($($argument:tt)*) => {if !tui::active() {println!($($argument)*);}};
+    ($($argument:tt)*) => {
+        if !tui::active() {
+            print!("\x1b[2m");
+            println!($($argument)*);
+            print!("\x1b[0m");
+        }
+    };
 }
 
 fn enqueue_message(message: String) -> Result<(), String> {
@@ -2382,7 +2388,7 @@ fn is_ignored_path(name: &str) -> bool {
         || lower.ends_with(".nio.lock")
 }
 
-const ASSISTANT_PREFIX: &str = "🤖 nio: ";
+const ASSISTANT_PREFIX: &str = "\x1b[1;32m🤖 nio:\x1b[0m ";
 const RESPONSE_INDENT: &str = "        ";
 const RESPONSE_INDENT_WIDTH: usize = 8;
 
@@ -3817,7 +3823,7 @@ fn emit_status(options: &Options, status: &str, message: &str) {
         } else {
             "\n"
         };
-        eprint!("🔹 [{status}] {message}{newline}");
+        eprint!("\x1b[2m🔹 [{status}] {message}\x1b[0m{newline}");
     }
 }
 
@@ -3957,7 +3963,7 @@ fn interactive_question(args: &Value) -> Result<Option<String>, String> {
         Ok((!answer.trim().is_empty()).then(|| answer.trim().to_string()))
     } else {
         let answer = choices[selected].to_string();
-        println!("You: {answer}");
+        println!("\x1b[1;36mYou:\x1b[0m {answer}");
         Ok(Some(answer))
     }
 }
@@ -7855,7 +7861,7 @@ fn read_interactive_line_raw(
                     clear_input_region(&mut stdout, &mut input_screen)?;
                     queue!(stdout, MoveToColumn(0), Clear(ClearType::CurrentLine))
                         .map_err(|error| format!("selecting follow-up: {error}"))?;
-                    write!(stdout, "You: {suggestion}\r\n")
+                    write!(stdout, "\x1b[1;36mYou:\x1b[0m {suggestion}\r\n")
                         .map_err(|error| format!("selecting follow-up: {error}"))?;
                     stdout
                         .flush()
