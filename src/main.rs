@@ -5733,7 +5733,7 @@ async fn run_agent_turn_inner(
                 compact_tool_messages(history);
                 let recovery_content = format!(
                     "Your last response contained raw <tool_call> tags in text instead of invoking tools via the function calling API. Do not output raw XML tags or <tool_call> in message content; invoke tools using the structured tool-calling API. {}",
-                    persona::format_persona_prompt(&load_user_config()?.persona).1
+                    persona::format_persona_prompt(&user_config.persona).1
                 );
                 messages.push(json!({"role":"system","content": recovery_content}));
                 emit_status(
@@ -5781,7 +5781,11 @@ async fn run_agent_turn_inner(
                     retried_empty_response = true;
                     compact_tool_messages(&mut messages);
                     compact_tool_messages(history);
-                    messages.push(json!({"role":"system","content":"Your last response completed without answer text or a tool call. Give a concise user-facing answer now using the conversation and available tool results. If information is missing, say what is missing. Do not make further tool calls for this response."}));
+                    let recovery_content = format!(
+                        "Your last response completed without answer text or a tool call. Give a concise user-facing answer now using the conversation and available tool results. If information is missing, say what is missing. Do not make further tool calls for this response. {}",
+                        persona::format_persona_prompt(&user_config.persona).1
+                    );
+                    messages.push(json!({"role":"system","content": recovery_content}));
                     emit_status(
                         options,
                         "retrying",
