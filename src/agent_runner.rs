@@ -131,12 +131,16 @@ pub fn format_handoff_prompt(goal: &str, manifest_opt: Option<&serde_json::Value
     if let Some(turns) = manifest.get("recent_turns").and_then(|v| v.as_array()) {
         if !turns.is_empty() {
             has_turns = true;
-            text.push_str("\nRecent Completed Turns:\n");
+            text.push_str("\n[RECENT COMPLETED TURNS & ASSESSMENTS]\n");
             for turn in turns {
                 let ag = turn.get("agent").and_then(|v| v.as_str()).unwrap_or("agent");
                 let sm = turn.get("summary").and_then(|v| v.as_str()).unwrap_or("");
+                let hs = turn.get("handoff_summary").and_then(|v| v.as_str()).unwrap_or("");
                 if !sm.is_empty() {
-                    text.push_str(&format!("  • [{ag}]: {sm}\n"));
+                    text.push_str(&format!("  • [{ag}]:\n    {sm}\n"));
+                }
+                if !hs.is_empty() && hs != sm {
+                    text.push_str(&format!("    Assessment / Findings:\n    {hs}\n"));
                 }
             }
         }
@@ -157,21 +161,19 @@ pub fn format_handoff_prompt(goal: &str, manifest_opt: Option<&serde_json::Value
         if !dead_ends.is_empty() {
             text.push_str("\nKnown Dead-Ends (DO NOT REPEAT):\n");
             for de in dead_ends {
-                let iss = de.get("issue").and_then(|v| v.as_str()).unwrap_or("");
+                let iss = de.get("issue").or_else(|| de.get("hypothesis")).and_then(|v| v.as_str()).unwrap_or("");
                 let att = de.get("attempt").and_then(|v| v.as_str()).unwrap_or("");
-                let why = de.get("why").and_then(|v| v.as_str()).unwrap_or("");
+                let why = de.get("why").or_else(|| de.get("reason")).and_then(|v| v.as_str()).unwrap_or("");
                 text.push_str(&format!("  • Issue: {iss} | Attempted: {att} | Why Failed: {why}\n"));
             }
         }
     }
 
-    if !has_turns {
-        if let Some(mt) = manifest.get("manifest_text").and_then(|v| v.as_str()) {
-            if !mt.trim().is_empty() {
-                text.push_str("\n");
-                text.push_str(mt.trim());
-                text.push('\n');
-            }
+    if let Some(mt) = manifest.get("manifest_text").and_then(|v| v.as_str()) {
+        if !mt.trim().is_empty() && !has_turns {
+            text.push_str("\n[SESSION MANIFEST]\n");
+            text.push_str(mt.trim());
+            text.push('\n');
         }
     }
 

@@ -202,6 +202,17 @@ impl NioDbClient {
         model: Option<&str>,
         reason: Option<&str>,
     ) -> Result<Value, String> {
+        self.switch_agent_full(id, to_agent, model, reason, None).await
+    }
+
+    pub async fn switch_agent_full(
+        &self,
+        id: &str,
+        to_agent: &str,
+        model: Option<&str>,
+        reason: Option<&str>,
+        summary_of_work: Option<&str>,
+    ) -> Result<Value, String> {
         let url = format!("{}/api/v1/sessions/{}/switch", self.base_url, id);
         let mut body = json!({
             "to_agent": to_agent,
@@ -209,6 +220,9 @@ impl NioDbClient {
         });
         if let Some(r) = reason {
             body["reason"] = json!(r);
+        }
+        if let Some(s) = summary_of_work {
+            body["summary_of_work"] = json!(s);
         }
 
         let resp = self
@@ -239,13 +253,28 @@ impl NioDbClient {
         summary: &str,
         files_touched: &[String],
     ) -> Result<Value, String> {
+        self.append_turn_full(id, agent, model, summary, None, files_touched).await
+    }
+
+    pub async fn append_turn_full(
+        &self,
+        id: &str,
+        agent: &str,
+        model: Option<&str>,
+        summary: &str,
+        handoff_summary: Option<&str>,
+        files_touched: &[String],
+    ) -> Result<Value, String> {
         let url = format!("{}/api/v1/sessions/{}/turns", self.base_url, id);
-        let body = json!({
+        let mut body = json!({
             "agent": agent,
             "model": model.unwrap_or(agent),
             "summary": summary,
             "files_touched": files_touched,
         });
+        if let Some(hs) = handoff_summary {
+            body["handoff_summary"] = json!(hs);
+        }
 
         let resp = self
             .client
