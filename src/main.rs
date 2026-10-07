@@ -4583,7 +4583,12 @@ async fn execute_agent_tool(
             let mut command_builder = {
                 let mut cb = tokio::process::Command::new("sh");
                 cb.arg("-c").arg(command);
-                cb.process_group(0);
+                unsafe {
+                    cb.pre_exec(|| {
+                        libc::setsid();
+                        Ok(())
+                    });
+                }
                 cb
             };
             #[cfg(windows)]

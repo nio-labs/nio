@@ -609,7 +609,13 @@ pub fn terminal_start(
     let mut child_command = {
         use std::os::unix::process::CommandExt;
         let mut command_builder = std::process::Command::new("sh");
-        command_builder.arg("-c").arg(command).process_group(0);
+        command_builder.arg("-c").arg(command);
+        unsafe {
+            command_builder.pre_exec(|| {
+                libc::setsid();
+                Ok(())
+            });
+        }
         command_builder
     };
     #[cfg(windows)]

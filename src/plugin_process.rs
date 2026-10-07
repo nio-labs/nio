@@ -54,7 +54,12 @@ pub async fn run(
         .kill_on_drop(true);
     #[cfg(unix)]
     if own_group {
-        command.process_group(0);
+        unsafe {
+            command.pre_exec(|| {
+                libc::setsid();
+                Ok(())
+            });
+        }
     }
     let mut child = command
         .spawn()
