@@ -1541,7 +1541,6 @@ fn has_leaked_tool_call(text: &str) -> bool {
         || lower.contains("<function_call")
 }
 
-
 fn parse_parameter_value(val_str: &str) -> Value {
     let trimmed = val_str.trim();
     if let Ok(num) = trimmed.parse::<i64>() {
@@ -3624,18 +3623,25 @@ fn process_sse_line(
                 return Err("response text exceeded the 2 MiB limit".into());
             }
             answer.push_str(&content);
-            
+
             let mut leak_start = None;
             let mut check_from = 0;
             while let Some(idx) = answer[check_from..].find('<') {
                 let tail = &answer[check_from + idx..];
-                for prefix in ["<tool_call", "<function=", "<function_call", "<function name="] {
+                for prefix in [
+                    "<tool_call",
+                    "<function=",
+                    "<function_call",
+                    "<function name=",
+                ] {
                     if tail.starts_with(prefix) || prefix.starts_with(tail) {
                         leak_start = Some(check_from + idx);
                         break;
                     }
                 }
-                if leak_start.is_some() { break; }
+                if leak_start.is_some() {
+                    break;
+                }
                 check_from += idx + 1;
             }
 
@@ -3708,18 +3714,25 @@ fn process_json_completion(
     {
         if !content.is_empty() {
             answer.push_str(content);
-            
+
             let mut leak_start = None;
             let mut check_from = 0;
             while let Some(idx) = answer[check_from..].find('<') {
                 let tail = &answer[check_from + idx..];
-                for prefix in ["<tool_call", "<function=", "<function_call", "<function name="] {
+                for prefix in [
+                    "<tool_call",
+                    "<function=",
+                    "<function_call",
+                    "<function name=",
+                ] {
                     if tail.starts_with(prefix) || prefix.starts_with(tail) {
                         leak_start = Some(check_from + idx);
                         break;
                     }
                 }
-                if leak_start.is_some() { break; }
+                if leak_start.is_some() {
+                    break;
+                }
                 check_from += idx + 1;
             }
 
@@ -6797,12 +6810,6 @@ async fn interactive(mut options: Options) -> Result<(), String> {
             configure_reasoning_effort()?;
             continue;
         }
-        if !command_mode && input == ":theme" {
-            if let Err(error) = configure_theme() {
-                eprintln!("nio: {error}");
-            }
-            continue;
-        }
         if !command_mode && input == ":provider" {
             configure_provider().await?;
             if let Ok(Some(new_model)) = select_and_save_model(&options).await {
@@ -6812,10 +6819,6 @@ async fn interactive(mut options: Options) -> Result<(), String> {
                 model = new_model.clone();
                 options.model = Some(new_model);
             }
-            continue;
-        }
-        if !command_mode && input == ":proxy" {
-            configure_proxy().await?;
             continue;
         }
         if !command_mode && (input == ":path" || input == ":workingpath") {
@@ -6846,22 +6849,6 @@ async fn interactive(mut options: Options) -> Result<(), String> {
             if let Err(error) = configure_settings().await {
                 eprintln!("nio: {error}");
             }
-            continue;
-        }
-        if !command_mode && input == ":mouse" {
-            let mut config = load_user_config()?;
-            let enabled = !config.mouse_input.unwrap_or(false);
-            config.mouse_input = Some(enabled);
-            save_user_config(&config)?;
-            println!(
-                "Prompt mouse click positioning {}. {}",
-                if enabled { "enabled" } else { "disabled" },
-                if enabled {
-                    "Native wheel/trackpad scrolling is unavailable while click capture is on."
-                } else {
-                    "Native wheel/trackpad scrolling is available."
-                }
-            );
             continue;
         }
         if !command_mode && input.starts_with(':') && input != ":continue" {
@@ -7385,7 +7372,11 @@ fn print_prompt_divider() -> Result<(), String> {
         .map_err(|error| format!("writing prompt divider: {error}"))
 }
 
-const COMMANDS: [(&str, &str); 19] = [
+const COMMANDS: [(&str, &str); 22] = [
+    (
+        ":approval",
+        "Toggle automatic approval for writes and commands",
+    ),
     (":bash", "Switch to a direct shell prompt"),
     (":clear", "Clear conversation history"),
     (":continue", "Continue the unfinished task in this session"),
@@ -7395,6 +7386,7 @@ const COMMANDS: [(&str, &str); 19] = [
     (":history", "Switch to a saved conversation"),
     (":ide", "Manage NioDE server daemon"),
     (":model", "Switch model"),
+    (":mode", "Choose Ask, Plan, or Build mode"),
     (":path", "Show the current project directory"),
     (
         ":plugins",
@@ -7402,6 +7394,7 @@ const COMMANDS: [(&str, &str); 19] = [
     ),
     (":queue", "List/edit/remove/pause/resume queued messages"),
     (":quit", "Exit Nio"),
+    (":reasoning", "Set reasoning effort"),
     (":sessions", "Switch to a saved session"),
     (
         ":setting",
@@ -10003,30 +9996,37 @@ async fn configure_settings() -> Result<(), String> {
             .as_deref()
             .unwrap_or("provider default");
         println!("Settings");
+        println!("  1) Agent mode: {}", title_case(mode));
+        println!("  2) Assistant persona");
+        let auto_approve = config.auto_approve_actions.unwrap_or(false);
         println!(
-            "  1) Minimum delay between model requests: {}s",
+            "  3) Auto-approve writes and commands: {}",
+            if auto_approve { "On" } else { "Off" }
+        );
+        println!("  4) Color theme: {}", configured_theme(&config).name);
+        println!(
+            "  5) Follow-up suggestions: {}",
+            if followups_enabled { "On" } else { "Off" }
+        );
+        println!(
+            "  6) Minimum delay between model requests: {}s",
             config
                 .request_interval_seconds
                 .unwrap_or(DEFAULT_REQUEST_INTERVAL_SECONDS)
         );
+        println!("  7) Model provider");
         println!(
-            "  2) Follow-up suggestions: {}",
-            if followups_enabled { "On" } else { "Off" }
-        );
-        println!("  3) Agent mode: {}", title_case(mode));
-        println!("  4) Reasoning effort: {}", title_case(effort));
-        let auto_approve = config.auto_approve_actions.unwrap_or(false);
-        println!(
-            "  5) Auto-approve writes and commands: {}",
-            if auto_approve { "On" } else { "Off" }
+            "  8) Mouse support for click-to-position: {}",
+            if config.mouse_input.unwrap_or(false) {
+                "On"
+            } else {
+                "Off"
+            }
         );
         let progress_style = configured_progress_style(&config);
-        println!("  6) Progress style: {progress_style}");
-        println!("  7) Color theme: {}", configured_theme(&config).name);
-        println!("  8) Mouse support for click-to-position: {}", if config.mouse_input.unwrap_or(false) { "On" } else { "Off" });
-        println!("  9) Model provider");
+        println!("  9) Progress style: {progress_style}");
         println!(" 10) Proxy URL");
-        println!(" 11) Assistant persona");
+        println!(" 11) Reasoning effort: {}", title_case(effort));
         print!("Choose a setting [1-11] or Enter to cancel: ");
         io::stdout()
             .flush()
@@ -10036,16 +10036,35 @@ async fn configure_settings() -> Result<(), String> {
             .read_line(&mut selection)
             .map_err(|e| format!("reading settings choice: {e}"))?;
         match selection.trim() {
-            "1" => { configure_request_interval(&mut config)?; SettingsAction::None }
-            "2" => {
+            "1" => {
+                configure_agent_mode()?;
+                SettingsAction::None
+            }
+            "2" => SettingsAction::ConfigurePersona,
+            "3" => {
+                toggle_auto_approval()?;
+                SettingsAction::None
+            }
+            "4" => {
+                configure_theme()?;
+                SettingsAction::None
+            }
+            "5" => {
                 config.follow_up_suggestions = Some(!followups_enabled);
                 save_user_config(&config)?;
                 SettingsAction::None
             }
-            "3" => { configure_agent_mode()?; SettingsAction::None }
-            "4" => { configure_reasoning_effort()?; SettingsAction::None }
-            "5" => { toggle_auto_approval()?; SettingsAction::None }
             "6" => {
+                configure_request_interval(&mut config)?;
+                SettingsAction::None
+            }
+            "7" => SettingsAction::ConfigureProvider,
+            "8" => {
+                config.mouse_input = Some(!config.mouse_input.unwrap_or(false));
+                save_user_config(&config)?;
+                SettingsAction::None
+            }
+            "9" => {
                 let next_style = if progress_style == "inline" {
                     "compact"
                 } else {
@@ -10055,15 +10074,11 @@ async fn configure_settings() -> Result<(), String> {
                 save_user_config(&config)?;
                 SettingsAction::None
             }
-            "7" => { configure_theme()?; SettingsAction::None }
-            "8" => {
-                config.mouse_input = Some(!config.mouse_input.unwrap_or(false));
-                save_user_config(&config)?;
+            "10" => SettingsAction::ConfigureProxy,
+            "11" => {
+                configure_reasoning_effort()?;
                 SettingsAction::None
             }
-            "9" => SettingsAction::ConfigureProvider,
-            "10" => SettingsAction::ConfigureProxy,
-            "11" => SettingsAction::ConfigurePersona,
             _ => SettingsAction::None,
         }
     } else {
@@ -10087,11 +10102,11 @@ async fn configure_settings() -> Result<(), String> {
     Ok(())
 }
 
-fn configure_settings_interactive() -> Result<(), String> {
+fn configure_settings_interactive() -> Result<SettingsAction, String> {
     let mut guard = RawModeGuard::acquire()?;
     let mut stdout = io::stdout();
     let mut selected = 0usize;
-    let num_items = 8usize;
+    let num_items = 9usize;
     let mut frame = InlineMenuFrame::default();
     let mut draw = |stdout: &mut io::Stdout,
                     config: &UserConfig,
@@ -10159,35 +10174,40 @@ fn configure_settings_interactive() -> Result<(), String> {
                 "Cycle ask, plan, or build mode",
             ),
             (
-                "2. Progress Style",
-                progress_badge,
-                "1-line tool logs vs live spinner",
-            ),
-            (
-                "3. Auto-approve Actions",
+                "2. Auto-approve Actions",
                 approve_badge,
                 "Ask before file writes and commands",
             ),
+            ("3. Color Theme", &theme_badge, "Set terminal color palette"),
             (
-                "4. Reasoning Effort",
-                effort_badge,
-                "Model provider reasoning depth",
-            ),
-            (
-                "5. Follow-up Suggestions",
+                "4. Follow-up Suggestions",
                 followups_badge,
                 "Clickable next-step prompt buttons",
             ),
             (
-                "6. Request Delay",
-                &delay_badge,
-                "Throttle interval between runs",
-            ),
-            ("7. Color Theme", &theme_badge, "Set terminal color palette"),
-            (
-                "8. Mouse Click Input",
+                "5. Mouse Click Input",
                 mouse_badge,
                 "Click to move cursor; native wheel scrolling is disabled while on",
+            ),
+            (
+                "6. Progress Style",
+                progress_badge,
+                "1-line tool logs vs live spinner",
+            ),
+            (
+                "7. Proxy URL",
+                "",
+                "Configure a proxy for provider requests",
+            ),
+            (
+                "8. Reasoning Effort",
+                effort_badge,
+                "Model provider reasoning depth",
+            ),
+            (
+                "9. Request Delay",
+                &delay_badge,
+                "Throttle interval between runs",
             ),
         ];
 
@@ -10208,11 +10228,12 @@ fn configure_settings_interactive() -> Result<(), String> {
             "Settings",
             &rows,
             selected,
-            "  ↑/↓ move · Enter/Space toggle · 1–8 jump · Esc done",
+            "  ↑/↓ move · Enter/Space select · 1–9 jump · Esc done",
         )
     };
 
     let mut config = load_user_config()?;
+    let mut action = SettingsAction::None;
     write!(stdout, "\r\n").map_err(|e| format!("spacing settings: {e}"))?;
     draw(&mut stdout, &config, selected, true)?;
 
@@ -10243,6 +10264,10 @@ fn configure_settings_interactive() -> Result<(), String> {
                     if let Some(idx) = (digit as usize).checked_sub(1) {
                         if idx < num_items {
                             selected = idx;
+                            if selected == 6 {
+                                action = SettingsAction::ConfigureProxy;
+                                break;
+                            }
                             toggle_setting_item(&mut config, selected)?;
                             draw(&mut stdout, &config, selected, false)?;
                         }
@@ -10250,6 +10275,10 @@ fn configure_settings_interactive() -> Result<(), String> {
                 }
             }
             KeyCode::Enter | KeyCode::Char(' ') => {
+                if selected == 6 {
+                    action = SettingsAction::ConfigureProxy;
+                    break;
+                }
                 toggle_setting_item(&mut config, selected)?;
                 draw(&mut stdout, &config, selected, false)?;
             }
@@ -10267,7 +10296,7 @@ fn configure_settings_interactive() -> Result<(), String> {
     let _ = stdout.flush();
     guard.release();
     println!("Settings saved.");
-    Ok(())
+    Ok(action)
 }
 
 fn toggle_setting_item(config: &mut UserConfig, item_index: usize) -> Result<(), String> {
@@ -10283,7 +10312,27 @@ fn toggle_setting_item(config: &mut UserConfig, item_index: usize) -> Result<(),
             config.agent_mode = Some(next.to_string());
         }
         1 => {
-            // Progress style toggle
+            // Auto approve toggle
+            let current = config.auto_approve_actions.unwrap_or(false);
+            config.auto_approve_actions = Some(!current);
+        }
+        2 => {
+            let current = configured_theme(config).id;
+            let index = THEMES
+                .iter()
+                .position(|theme| theme.id == current)
+                .unwrap_or(0);
+            config.theme = Some(THEMES[(index + 1) % THEMES.len()].id.to_string());
+        }
+        3 => {
+            // Follow up toggle
+            let current = config.follow_up_suggestions.unwrap_or(false);
+            config.follow_up_suggestions = Some(!current);
+        }
+        4 => {
+            config.mouse_input = Some(!config.mouse_input.unwrap_or(false));
+        }
+        5 => {
             let current = configured_progress_style(config);
             let next = if current == "inline" {
                 "compact"
@@ -10292,13 +10341,7 @@ fn toggle_setting_item(config: &mut UserConfig, item_index: usize) -> Result<(),
             };
             config.progress_style = Some(next.to_string());
         }
-        2 => {
-            // Auto approve toggle
-            let current = config.auto_approve_actions.unwrap_or(false);
-            config.auto_approve_actions = Some(!current);
-        }
-        3 => {
-            // Reasoning effort cycle
+        7 => {
             let current = config.reasoning_effort.as_deref().unwrap_or("default");
             let next = match current {
                 "default" => Some("low"),
@@ -10308,13 +10351,7 @@ fn toggle_setting_item(config: &mut UserConfig, item_index: usize) -> Result<(),
             };
             config.reasoning_effort = next.map(str::to_string);
         }
-        4 => {
-            // Follow up toggle
-            let current = config.follow_up_suggestions.unwrap_or(false);
-            config.follow_up_suggestions = Some(!current);
-        }
-        5 => {
-            // Delay cycle: 0 -> 1 -> 2 -> 5 -> 10 -> 0
+        8 => {
             let current = config
                 .request_interval_seconds
                 .unwrap_or(DEFAULT_REQUEST_INTERVAL_SECONDS);
@@ -10326,17 +10363,6 @@ fn toggle_setting_item(config: &mut UserConfig, item_index: usize) -> Result<(),
                 _ => 0,
             };
             config.request_interval_seconds = Some(next);
-        }
-        6 => {
-            let current = configured_theme(config).id;
-            let index = THEMES
-                .iter()
-                .position(|theme| theme.id == current)
-                .unwrap_or(0);
-            config.theme = Some(THEMES[(index + 1) % THEMES.len()].id.to_string());
-        }
-        7 => {
-            config.mouse_input = Some(!config.mouse_input.unwrap_or(false));
         }
         _ => return Ok(()),
     }
@@ -10935,29 +10961,39 @@ const HELP_OPTIONS: &[(&str, &str)] = &[
 
 const HELP_INTERACTIVE: &[(&str, &str)] = &[
     (
-        ":queue",
-        "List/edit/remove/clear/pause/resume pending messages",
+        ":approval",
+        "Toggle automatic approval for writes and commands",
     ),
-    (":stop", "Stop the response; preserve pending messages"),
-    (":skills", "List/add/remove/enable/disable GitHub skills"),
+    (":bash", "Direct shell prompt; :ai returns"),
+    (":clear", "Clear conversation history"),
+    (":continue", "Continue the unfinished task in this session"),
+    (":details", "Expand the latest file edit; d toggles details"),
+    (":diff", "Show git diff of project changes"),
+    (":help", "List commands"),
+    (":history", "Switch to a saved conversation"),
+    (":ide", "Manage NioDE server daemon"),
+    (":model", "Switch the active model"),
+    (":mode", "Choose Ask, Plan, or Build mode"),
+    (":path", "Show the current project directory"),
     (
         ":plugins",
         "Manage optional file readers and PDF OCR languages",
     ),
-    (":snippets", "Manage and run custom snippets and functions"),
-    (":ide", "Manage NioDE server daemon"),
-    (":clear", "Clear conversation history"),
-    (":diff", "Show git diff of project changes"),
-    (":undo", "Revert last file change made by Nio"),
-    (":help", "List commands"),
-    (":model", "Switch the active model"),
-    (":path", "Show the current project directory"),
+    (
+        ":queue",
+        "List/edit/remove/clear/pause/resume pending messages",
+    ),
+    (":quit", "Exit"),
+    (":reasoning", "Set reasoning effort"),
+    (":sessions", "Switch to a saved session"),
     (
         ":setting",
         "Configure mode, reasoning, approvals, and settings",
     ),
-    (":bash", "Direct shell prompt; :ai returns"),
-    (":quit", "Exit"),
+    (":skills", "List/add/remove/enable/disable GitHub skills"),
+    (":snippets", "Manage and run custom snippets and functions"),
+    (":stop", "Stop the response; preserve pending messages"),
+    (":undo", "Revert last file change made by Nio"),
 ];
 
 fn print_interactive_help() -> Result<(), String> {

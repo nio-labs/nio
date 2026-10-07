@@ -96,7 +96,7 @@ irm https://raw.githubusercontent.com/nio-labs/nio/main/install.ps1 | iex
 Custom installation options:
 ```sh
 # Pin a specific release
-curl -fsSL https://raw.githubusercontent.com/nio-labs/nio/main/install.sh | NIO_VERSION=v0.3.4 bash
+curl -fsSL https://raw.githubusercontent.com/nio-labs/nio/main/install.sh | NIO_VERSION=v0.3.5 bash
 
 # Custom installation directory
 curl -fsSL https://raw.githubusercontent.com/nio-labs/nio/main/install.sh | NIO_INSTALL_DIR="$HOME/.local/bin" bash
