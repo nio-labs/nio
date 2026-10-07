@@ -3,14 +3,18 @@
 //! Connects and streams coding agents (agy, codex, claude, opencode) with zero-loss
 //! context handoff powered by NioDB session ledgers and manifests.
 
+use crate::Options;
 use crate::agent_runner::{
     detect_agents, format_handoff_prompt, run_agent_interactive, run_agent_streaming,
 };
 use crate::niodb::NioDbClient;
-use crate::Options;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::io::{self, IsTerminal};
-use std::{env, fs, path::PathBuf, time::{SystemTime, UNIX_EPOCH}};
+use std::{
+    env, fs,
+    path::PathBuf,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 pub async fn command(options: &Options) -> Result<(), String> {
     let db = NioDbClient::new();
@@ -31,7 +35,11 @@ pub async fn command(options: &Options) -> Result<(), String> {
     let mut flag_attempt = None;
     let mut flag_why = None;
 
-    let mut i = if sub.is_some() && !sub.unwrap().starts_with('-') { 1 } else { 0 };
+    let mut i = if sub.is_some() && !sub.unwrap().starts_with('-') {
+        1
+    } else {
+        0
+    };
     while i < args.len() {
         let arg = &args[i];
         if arg == "--agent" && i + 1 < args.len() {
@@ -100,20 +108,27 @@ pub async fn command(options: &Options) -> Result<(), String> {
                 "Usage: nio bridge switch <session_id> --to <agent> [--model <model>]".to_string()
             })?;
             let to_agent = flag_to.ok_or_else(|| {
-                "Missing --to <agent>. Usage: nio bridge switch <session_id> --to <agent>".to_string()
+                "Missing --to <agent>. Usage: nio bridge switch <session_id> --to <agent>"
+                    .to_string()
             })?;
             let reason = flag_reason.or(flag_goal);
-            switch_bridge_agent(&db, session_id, &to_agent, flag_model.as_deref(), reason.as_deref()).await
+            switch_bridge_agent(
+                &db,
+                session_id,
+                &to_agent,
+                flag_model.as_deref(),
+                reason.as_deref(),
+            )
+            .await
         }
         Some("manifest") => {
-            let session_id = args.get(1).map(String::as_str).ok_or_else(|| {
-                "Usage: nio bridge manifest <session_id>".to_string()
-            })?;
+            let session_id = args
+                .get(1)
+                .map(String::as_str)
+                .ok_or_else(|| "Usage: nio bridge manifest <session_id>".to_string())?;
             show_manifest(&db, session_id).await
         }
-        Some("sessions") | Some("list") => {
-            list_bridge_sessions(&db).await
-        }
+        Some("sessions") | Some("list") => list_bridge_sessions(&db).await,
         Some("dead-end") => {
             let session_id = args.get(1).map(String::as_str).ok_or_else(|| {
                 "Usage: nio bridge dead-end <session_id> --issue <text> --attempt <text> --why <text>".to_string()
@@ -127,9 +142,9 @@ pub async fn command(options: &Options) -> Result<(), String> {
             print_bridge_help();
             Ok(())
         }
-        Some(other) => {
-            Err(format!("Unknown bridge command '{other}'. Run 'nio bridge --help'."))
-        }
+        Some(other) => Err(format!(
+            "Unknown bridge command '{other}'. Run 'nio bridge --help'."
+        )),
     }
 }
 
@@ -186,17 +201,31 @@ async fn run_empty_state_display(db: &NioDbClient) -> Result<(), String> {
         println!("    \x1b[31m✕ No external coding agent binaries detected.\x1b[0m");
     } else {
         for a in &agents {
-            println!("    \x1b[32m●\x1b[0m \x1b[1m{:<8}\x1b[0m : {} ({})", a.id, a.name, a.binary_path.display());
+            println!(
+                "    \x1b[32m●\x1b[0m \x1b[1m{:<8}\x1b[0m : {} ({})",
+                a.id,
+                a.name,
+                a.binary_path.display()
+            );
         }
     }
 
     println!("\n  \x1b[1mNioDB Backend:\x1b[0m");
     if db_ok {
-        println!("    \x1b[32m●\x1b[0m Status   : Connected ({})", db.base_url);
+        println!(
+            "    \x1b[32m●\x1b[0m Status   : Connected ({})",
+            db.base_url
+        );
     } else {
-        println!("    \x1b[33m▲\x1b[0m Status   : Local storage fallback ({})", db.base_url);
+        println!(
+            "    \x1b[33m▲\x1b[0m Status   : Local storage fallback ({})",
+            db.base_url
+        );
     }
-    println!("    ● Sessions : {} active bridge sessions (Empty State)", sessions.len());
+    println!(
+        "    ● Sessions : {} active bridge sessions (Empty State)",
+        sessions.len()
+    );
 
     println!("\n  Each coding agent uses its own configured model by default.");
 
@@ -211,7 +240,10 @@ async fn run_empty_state_display(db: &NioDbClient) -> Result<(), String> {
     Ok(())
 }
 
-async fn run_empty_state_interactive(db: &NioDbClient, preselected_model: Option<&str>) -> Result<(), String> {
+async fn run_empty_state_interactive(
+    db: &NioDbClient,
+    preselected_model: Option<&str>,
+) -> Result<(), String> {
     let agents = detect_agents();
     let db_ok = db.is_healthy().await;
     let sessions = list_bridge_records(db).await.unwrap_or_default();
@@ -229,15 +261,26 @@ async fn run_empty_state_interactive(db: &NioDbClient, preselected_model: Option
         println!("    \x1b[31m✕ No external coding agent binaries detected.\x1b[0m");
     } else {
         for a in &agents {
-            println!("    \x1b[32m●\x1b[0m \x1b[1m{:<8}\x1b[0m : {} ({})", a.id, a.name, a.binary_path.display());
+            println!(
+                "    \x1b[32m●\x1b[0m \x1b[1m{:<8}\x1b[0m : {} ({})",
+                a.id,
+                a.name,
+                a.binary_path.display()
+            );
         }
     }
 
     println!("\n  \x1b[1mNioDB Backend:\x1b[0m");
     if db_ok {
-        println!("    \x1b[32m●\x1b[0m Status   : Connected ({})", db.base_url);
+        println!(
+            "    \x1b[32m●\x1b[0m Status   : Connected ({})",
+            db.base_url
+        );
     } else {
-        println!("    \x1b[33m▲\x1b[0m Status   : Local storage fallback ({})", db.base_url);
+        println!(
+            "    \x1b[33m▲\x1b[0m Status   : Local storage fallback ({})",
+            db.base_url
+        );
     }
     println!("    ● Sessions : {} active bridge sessions", sessions.len());
 
@@ -271,31 +314,50 @@ async fn run_empty_state_interactive(db: &NioDbClient, preselected_model: Option
     let available_ids: Vec<String> = if !agents.is_empty() {
         agents.iter().map(|a| a.id.clone()).collect()
     } else {
-        vec!["agy".into(), "codex".into(), "claude".into(), "opencode".into()]
+        vec![
+            "agy".into(),
+            "codex".into(),
+            "claude".into(),
+            "opencode".into(),
+        ]
     };
 
-    let agent_options: Vec<(&str, &str, bool)> = available_ids.iter().enumerate()
+    let agent_options: Vec<(&str, &str, bool)> = available_ids
+        .iter()
+        .enumerate()
         .map(|(idx, id)| (id.as_str(), "", idx == 0))
         .collect();
-    let Some(agent_idx) = crate::select_menu_option_b("Coding Agent", &agent_options, 0)? else { return Ok(()); };
+    let Some(agent_idx) = crate::select_menu_option_b("Coding Agent", &agent_options, 0)? else {
+        return Ok(());
+    };
     let selected_agent = available_ids
         .get(agent_idx)
         .cloned()
         .unwrap_or_else(|| "agy".to_string());
 
     let selected_model = preselected_model.map(str::to_string);
-    
+
     let mut task_prompt = String::new();
     while task_prompt.trim().is_empty() {
         println!("\n  \x1b[1mSession Task\x1b[0m (Required)");
-        println!("  \x1b[2mThis will be used as the session title and your initial instruction to the agent.\x1b[0m");
+        println!(
+            "  \x1b[2mThis will be used as the session title and your initial instruction to the agent.\x1b[0m"
+        );
         task_prompt = crate::read_console_line("  > ")?;
         if task_prompt.trim().is_empty() {
             println!("  \x1b[31mTask is required to start a session.\x1b[0m");
         }
     }
-    
-    run_bridge_agent(db, &selected_agent, selected_model.as_deref(), Some(task_prompt.trim()), None, true).await
+
+    run_bridge_agent(
+        db,
+        &selected_agent,
+        selected_model.as_deref(),
+        Some(task_prompt.trim()),
+        None,
+        true,
+    )
+    .await
 }
 
 async fn run_bridge_agent(
@@ -310,20 +372,38 @@ async fn run_bridge_agent(
         sid.to_string()
     } else {
         let title_string = goal.unwrap_or("").to_string();
-        let title = if title_string.is_empty() { format!("Bridge {} session", agent) } else { title_string };
+        let title = if title_string.is_empty() {
+            format!("Bridge {} session", agent)
+        } else {
+            title_string
+        };
         match create_bridge_session(db, &title, agent, model, goal).await {
-            Ok(v) => v.get("id").and_then(|id| id.as_str()).unwrap_or("bridge_active").to_string(),
-            Err(e) => return Err(format!("Could not create bridge session in NioDB or local storage: {e}")),
+            Ok(v) => v
+                .get("id")
+                .and_then(|id| id.as_str())
+                .unwrap_or("bridge_active")
+                .to_string(),
+            Err(e) => {
+                return Err(format!(
+                    "Could not create bridge session in NioDB or local storage: {e}"
+                ));
+            }
         }
     };
 
     if goal.is_none() {
-        println!("\x1b[2mBridge session {session_id} · switch later with: nio bridge switch {session_id} --to <agent>\x1b[0m\n");
+        println!(
+            "\x1b[2mBridge session {session_id} · switch later with: nio bridge switch {session_id} --to <agent>\x1b[0m\n"
+        );
     } else {
         println!("  \x1b[2mSession ID : {}\x1b[0m", session_id);
         println!("  \x1b[2mAgent      : {}\x1b[0m", agent);
-        if let Some(m) = model { println!("  \x1b[2mModel      : {}\x1b[0m", m); }
-        println!("  \x1b[2m════════════════════════════════════════════════════════════════\x1b[0m\n");
+        if let Some(m) = model {
+            println!("  \x1b[2mModel      : {}\x1b[0m", m);
+        }
+        println!(
+            "  \x1b[2m════════════════════════════════════════════════════════════════\x1b[0m\n"
+        );
     }
 
     if goal.is_some() && !interactive {
@@ -333,18 +413,25 @@ async fn run_bridge_agent(
         let prompt_with_context = format_handoff_prompt(task_goal, manifest_val.as_ref());
 
         let tag = format!("{agent}");
-        let (exit_code, output) = run_agent_streaming(agent, model, &prompt_with_context, Some(&tag)).await?;
+        let (exit_code, output) =
+            run_agent_streaming(agent, model, &prompt_with_context, Some(&tag)).await?;
 
-        println!("\n  \x1b[2m════════════════════════════════════════════════════════════════\x1b[0m");
+        println!(
+            "\n  \x1b[2m════════════════════════════════════════════════════════════════\x1b[0m"
+        );
         if exit_code == 0 {
             println!("  \x1b[32m✓ Turn completed successfully.\x1b[0m");
             // Sync turn to NioDB
             let summary = format!("Executed task: {task_goal}");
             let touched = extract_touched_files(&output);
-            if let Err(e) = append_bridge_turn(db, &session_id, agent, model, &summary, None, &touched).await {
+            if let Err(e) =
+                append_bridge_turn(db, &session_id, agent, model, &summary, None, &touched).await
+            {
                 eprintln!("\x1b[33mNotice: failed to record turn in NioDB: {e}\x1b[0m");
             } else {
-                println!("  \x1b[32m✓ Handoff ledger updated in NioDB. Ready for zero-loss switch.\x1b[0m");
+                println!(
+                    "  \x1b[32m✓ Handoff ledger updated in NioDB. Ready for zero-loss switch.\x1b[0m"
+                );
             }
         } else {
             println!("  \x1b[31m✕ Agent exited with code {exit_code}.\x1b[0m");
@@ -361,11 +448,26 @@ async fn run_bridge_agent(
         let assessment = extract_agent_session_assessment(agent, start_time);
         let summary = format!("Interactive session completed with {agent}");
         let after_files = detect_git_modified_files();
-        let touched: Vec<String> = after_files.into_iter().filter(|f| !before_files.contains(f)).collect();
-        let _ = append_bridge_turn(db, &session_id, agent, model, &summary, assessment.as_deref(), &touched).await;
+        let touched: Vec<String> = after_files
+            .into_iter()
+            .filter(|f| !before_files.contains(f))
+            .collect();
+        let _ = append_bridge_turn(
+            db,
+            &session_id,
+            agent,
+            model,
+            &summary,
+            assessment.as_deref(),
+            &touched,
+        )
+        .await;
     }
 
-    println!("  \x1b[2mTip: Switch agents anytime with: nio bridge switch {} --to <other_agent>\x1b[0m\n", session_id);
+    println!(
+        "  \x1b[2mTip: Switch agents anytime with: nio bridge switch {} --to <other_agent>\x1b[0m\n",
+        session_id
+    );
     Ok(())
 }
 
@@ -376,7 +478,10 @@ async fn switch_bridge_agent(
     model: Option<&str>,
     reason: Option<&str>,
 ) -> Result<(), String> {
-    println!("\n  \x1b[1m✦ Initiating Zero-Loss Context Switch to {}...\x1b[0m", to_agent);
+    println!(
+        "\n  \x1b[1m✦ Initiating Zero-Loss Context Switch to {}...\x1b[0m",
+        to_agent
+    );
     let _ = db.ensure_healthy().await;
 
     // Read the old session state before switching its current agent. The manifest
@@ -385,10 +490,25 @@ async fn switch_bridge_agent(
         format!("Failed to retrieve context manifest for session {session_id}: {e}")
     })?;
 
-    let prev_agent = manifest.get("current_agent").and_then(|v| v.as_str()).unwrap_or("previous agent");
-    let turns = manifest.get("recent_turns").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
-    let files = manifest.get("files_touched").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
-    let dead_ends = manifest.get("known_dead_ends").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
+    let prev_agent = manifest
+        .get("current_agent")
+        .and_then(|v| v.as_str())
+        .unwrap_or("previous agent");
+    let turns = manifest
+        .get("recent_turns")
+        .and_then(|v| v.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0);
+    let files = manifest
+        .get("files_touched")
+        .and_then(|v| v.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0);
+    let dead_ends = manifest
+        .get("known_dead_ends")
+        .and_then(|v| v.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0);
 
     println!(
         r#"
@@ -408,18 +528,24 @@ async fn switch_bridge_agent(
     );
 
     // Persist the target agent only after preserving the source manifest.
-    switch_bridge_record(db, session_id, to_agent, model, reason).await.map_err(|e| {
-        format!("Failed to record agent switch in NioDB: {e}")
-    })?;
+    switch_bridge_record(db, session_id, to_agent, model, reason)
+        .await
+        .map_err(|e| format!("Failed to record agent switch in NioDB: {e}"))?;
 
-    println!("\n  \x1b[32m✓ Handoff package prepared for {}. Ready for next run.\x1b[0m\n", to_agent);
+    println!(
+        "\n  \x1b[32m✓ Handoff package prepared for {}. Ready for next run.\x1b[0m\n",
+        to_agent
+    );
 
     Ok(())
 }
 
 async fn show_manifest(db: &NioDbClient, session_id: &str) -> Result<(), String> {
     let manifest = get_bridge_manifest(db, session_id).await?;
-    println!("{}", serde_json::to_string_pretty(&manifest).unwrap_or_default());
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&manifest).unwrap_or_default()
+    );
     Ok(())
 }
 
@@ -438,8 +564,12 @@ fn normalize_session_value(mut s: Value) -> Value {
 
 fn extract_session_timestamp(session: &Value) -> u64 {
     let parse_iso = |iso: &str| -> Option<u64> {
-        let parts: Vec<&str> = iso.split(|c| c == 'T' || c == 'Z' || c == '-' || c == ':' || c == '.').collect();
-        if parts.len() < 6 { return None; }
+        let parts: Vec<&str> = iso
+            .split(|c| c == 'T' || c == 'Z' || c == '-' || c == ':' || c == '.')
+            .collect();
+        if parts.len() < 6 {
+            return None;
+        }
         let y: u64 = parts[0].parse().ok()?;
         let m: u64 = parts[1].parse().ok()?;
         let d: u64 = parts[2].parse().ok()?;
@@ -449,20 +579,31 @@ fn extract_session_timestamp(session: &Value) -> u64 {
         let ms: u64 = if parts.len() > 6 && !parts[6].is_empty() {
             let ms_str = &parts[6][0..std::cmp::min(3, parts[6].len())];
             let mut val: u64 = ms_str.parse().ok()?;
-            if ms_str.len() == 1 { val *= 100; }
-            else if ms_str.len() == 2 { val *= 10; }
+            if ms_str.len() == 1 {
+                val *= 100;
+            } else if ms_str.len() == 2 {
+                val *= 10;
+            }
             val
-        } else { 0 };
+        } else {
+            0
+        };
 
         let mut days = 0;
         for year in 1970..y {
-            days += if year % 4 == 0 && (year % 100 != 0 || year % 400 == 0) { 366 } else { 365 };
+            days += if year % 4 == 0 && (year % 100 != 0 || year % 400 == 0) {
+                366
+            } else {
+                365
+            };
         }
         let month_days = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
         let is_leap = y % 4 == 0 && (y % 100 != 0 || y % 400 == 0);
         for month in 1..m {
             days += month_days[(month - 1) as usize];
-            if month == 2 && is_leap { days += 1; }
+            if month == 2 && is_leap {
+                days += 1;
+            }
         }
         days += d - 1;
 
@@ -471,10 +612,14 @@ fn extract_session_timestamp(session: &Value) -> u64 {
     };
 
     if let Some(updated) = session.get("updated_at").and_then(Value::as_str) {
-        if let Some(ts) = parse_iso(updated) { return ts; }
+        if let Some(ts) = parse_iso(updated) {
+            return ts;
+        }
     }
     if let Some(created) = session.get("created_at").and_then(Value::as_str) {
-        if let Some(ts) = parse_iso(created) { return ts; }
+        if let Some(ts) = parse_iso(created) {
+            return ts;
+        }
     }
     if let Some(id) = session.get("id").and_then(Value::as_str) {
         if id.starts_with("bridge_local_") {
@@ -490,14 +635,14 @@ fn session_display_info(session: &Value) -> (String, String) {
     let goal = s.get("goal").and_then(Value::as_str).unwrap_or("").trim();
     let title = s.get("title").and_then(Value::as_str).unwrap_or("").trim();
 
-    let generic_goal = goal.eq_ignore_ascii_case("switched agent")
-        || goal.eq_ignore_ascii_case("unknown");
+    let generic_goal =
+        goal.eq_ignore_ascii_case("switched agent") || goal.eq_ignore_ascii_case("unknown");
     let normalized_title = title.to_ascii_lowercase();
     let generic_title = normalized_title == "bridge session"
         || (normalized_title.starts_with("bridge ") && normalized_title.ends_with(" session"));
-        
+
     let id = s.get("id").and_then(Value::as_str).unwrap_or("unknown_id");
-        
+
     let primary_title = if !goal.is_empty() && !generic_goal {
         goal.to_string()
     } else if !title.is_empty() && !generic_title {
@@ -519,7 +664,10 @@ fn session_display_info(session: &Value) -> (String, String) {
     let time_str = if ts_ms == 0 {
         "".to_string()
     } else {
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
         if ts_ms > now {
             " · just now".to_string()
         } else {
@@ -560,7 +708,10 @@ async fn list_bridge_sessions(db: &NioDbClient) -> Result<(), String> {
 
     for s in sessions {
         let normalized = normalize_session_value(s);
-        let id = normalized.get("id").and_then(|v| v.as_str()).unwrap_or("unknown");
+        let id = normalized
+            .get("id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
         let (task, meta) = session_display_info(&normalized);
         println!("    • \x1b[1;36m{id}\x1b[0m : {task} \x1b[2m{meta}\x1b[0m");
     }
@@ -590,42 +741,70 @@ async fn prompt_resume_session(db: &NioDbClient) -> Result<(), String> {
         return Ok(());
     }
 
-    let sessions: Vec<Value> = raw_sessions.into_iter().map(normalize_session_value).collect();
+    let sessions: Vec<Value> = raw_sessions
+        .into_iter()
+        .map(normalize_session_value)
+        .collect();
     let display_pairs: Vec<(String, String)> = sessions.iter().map(session_display_info).collect();
     let session_items: Vec<(&str, &str, bool)> = display_pairs
         .iter()
         .map(|(task, meta)| (task.as_str(), meta.as_str(), false))
         .collect();
 
-    let Some(idx) = crate::select_menu_option_b("Select Bridge Session to Resume", &session_items, 0)? else { return Ok(()); };
+    let Some(idx) =
+        crate::select_menu_option_b("Select Bridge Session to Resume", &session_items, 0)?
+    else {
+        return Ok(());
+    };
     let session = &sessions[idx];
     let selected_session = session.get("id").and_then(Value::as_str).unwrap_or("");
-    let agent = session.get("agent").and_then(Value::as_str).unwrap_or("agy");
+    let agent = session
+        .get("agent")
+        .and_then(Value::as_str)
+        .unwrap_or("agy");
     let prev_model = session.get("model").and_then(Value::as_str);
 
     let detected = crate::agent_runner::detect_agents();
     let target_agents: Vec<String> = if detected.is_empty() {
-        vec!["agy".into(), "codex".into(), "claude".into(), "opencode".into()]
+        vec![
+            "agy".into(),
+            "codex".into(),
+            "claude".into(),
+            "opencode".into(),
+        ]
     } else {
         detected.iter().map(|a| a.id.clone()).collect()
     };
-    
+
     let initial_idx = target_agents.iter().position(|a| a == agent).unwrap_or(0);
-    let target_items: Vec<(&str, &str, bool)> = target_agents.iter()
+    let target_items: Vec<(&str, &str, bool)> = target_agents
+        .iter()
         .map(|a| (a.as_str(), "", false))
         .collect();
-        
-    let Some(agent_idx) = crate::select_menu_option_b("Resume with Agent", &target_items, initial_idx)? else { return Ok(()); };
+
+    let Some(agent_idx) =
+        crate::select_menu_option_b("Resume with Agent", &target_items, initial_idx)?
+    else {
+        return Ok(());
+    };
     let selected_agent = &target_agents[agent_idx];
-    let model = if selected_agent == agent { prev_model } else { None };
+    let model = if selected_agent == agent {
+        prev_model
+    } else {
+        None
+    };
 
     // Re-fetch manifest to build the handoff prompt if needed.
-    let manifest = get_bridge_manifest(db, selected_session).await.unwrap_or_else(|_| serde_json::json!({}));
+    let manifest = get_bridge_manifest(db, selected_session)
+        .await
+        .unwrap_or_else(|_| serde_json::json!({}));
     let prev_goal = manifest
         .get("goal")
         .and_then(Value::as_str)
         .map(str::trim)
-        .filter(|g| !g.is_empty() && !is_generic_turn_summary(g) && !g.eq_ignore_ascii_case("unknown"))
+        .filter(|g| {
+            !g.is_empty() && !is_generic_turn_summary(g) && !g.eq_ignore_ascii_case("unknown")
+        })
         .unwrap_or("");
 
     let mut handoff_prompt = crate::agent_runner::format_handoff_prompt(prev_goal, Some(&manifest));
@@ -633,20 +812,50 @@ async fn prompt_resume_session(db: &NioDbClient) -> Result<(), String> {
     handoff_prompt.push_str("\n\n[SYSTEM INSTRUCTION]\n");
     handoff_prompt.push_str("This is a resumed session. Please briefly acknowledge this context in 1 sentence and wait for the user's next command. DO NOT begin working on the objective yet.");
 
-    println!("\n  \x1b[32m⚡ Resuming session with {} interactively...\x1b[0m\n", selected_agent);
+    println!(
+        "\n  \x1b[32m⚡ Resuming session with {} interactively...\x1b[0m\n",
+        selected_agent
+    );
     let before_files = detect_git_modified_files();
     let start_time = SystemTime::now();
     // Auto-switch if the user chose a different agent than the one active in the session
     if selected_agent != agent {
-        let _ = db.switch_agent_full(selected_session, selected_agent, model, Some(&format!("Resumed session and switched to {}", selected_agent)), None).await;
+        let _ = db
+            .switch_agent_full(
+                selected_session,
+                selected_agent,
+                model,
+                Some(&format!(
+                    "Resumed session and switched to {}",
+                    selected_agent
+                )),
+                None,
+            )
+            .await;
     }
-    let code = crate::agent_runner::run_agent_interactive(selected_agent, model, Some(handoff_prompt.as_str()))?;
+    let code = crate::agent_runner::run_agent_interactive(
+        selected_agent,
+        model,
+        Some(handoff_prompt.as_str()),
+    )?;
 
     let assessment = extract_agent_session_assessment(selected_agent, start_time);
     let summary = format!("Interactive session resumed with {selected_agent}");
     let after_files = detect_git_modified_files();
-    let touched: Vec<String> = after_files.into_iter().filter(|f| !before_files.contains(f)).collect();
-    let _ = append_bridge_turn(db, selected_session, selected_agent, model, &summary, assessment.as_deref(), &touched).await;
+    let touched: Vec<String> = after_files
+        .into_iter()
+        .filter(|f| !before_files.contains(f))
+        .collect();
+    let _ = append_bridge_turn(
+        db,
+        selected_session,
+        selected_agent,
+        model,
+        &summary,
+        assessment.as_deref(),
+        &touched,
+    )
+    .await;
 
     if code != 0 {
         eprintln!("  \x1b[33mAgent exited with status {code}\x1b[0m");
@@ -662,26 +871,44 @@ async fn prompt_switch_session(db: &NioDbClient) -> Result<(), String> {
         return Ok(());
     }
 
-    let sessions: Vec<Value> = raw_sessions.into_iter().map(normalize_session_value).collect();
+    let sessions: Vec<Value> = raw_sessions
+        .into_iter()
+        .map(normalize_session_value)
+        .collect();
     let display_pairs: Vec<(String, String)> = sessions.iter().map(session_display_info).collect();
     let session_items: Vec<(&str, &str, bool)> = display_pairs
         .iter()
         .map(|(task, meta)| (task.as_str(), meta.as_str(), false))
         .collect();
 
-    let Some(idx) = crate::select_menu_option_b("Select Bridge Session to Switch", &session_items, 0)? else { return Ok(()); };
-    let selected_session = sessions[idx].get("id").and_then(Value::as_str).unwrap_or("");
+    let Some(idx) =
+        crate::select_menu_option_b("Select Bridge Session to Switch", &session_items, 0)?
+    else {
+        return Ok(());
+    };
+    let selected_session = sessions[idx]
+        .get("id")
+        .and_then(Value::as_str)
+        .unwrap_or("");
 
     let detected = detect_agents();
     let target_agents: Vec<String> = if detected.is_empty() {
-        vec!["agy".into(), "codex".into(), "claude".into(), "opencode".into()]
+        vec![
+            "agy".into(),
+            "codex".into(),
+            "claude".into(),
+            "opencode".into(),
+        ]
     } else {
         detected.iter().map(|agent| agent.id.clone()).collect()
     };
-    let target_items: Vec<(&str, &str, bool)> = target_agents.iter()
+    let target_items: Vec<(&str, &str, bool)> = target_agents
+        .iter()
         .map(|agent| (agent.as_str(), "", false))
         .collect();
-    let Some(agent_idx) = crate::select_menu_option_b("Switch To Agent", &target_items, 0)? else { return Ok(()); };
+    let Some(agent_idx) = crate::select_menu_option_b("Switch To Agent", &target_items, 0)? else {
+        return Ok(());
+    };
     switch_bridge_agent(db, selected_session, &target_agents[agent_idx], None, None).await
 }
 
@@ -689,7 +916,10 @@ fn extract_touched_files(output: &str) -> Vec<String> {
     let mut files = Vec::new();
     for line in output.lines() {
         let trimmed = line.trim();
-        if trimmed.starts_with("Created ") || trimmed.starts_with("Updated ") || trimmed.starts_with("Modified ") {
+        if trimmed.starts_with("Created ")
+            || trimmed.starts_with("Updated ")
+            || trimmed.starts_with("Modified ")
+        {
             if let Some(path) = trimmed.split_whitespace().nth(1) {
                 files.push(path.trim_matches('`').to_string());
             }
@@ -701,13 +931,17 @@ fn extract_touched_files(output: &str) -> Vec<String> {
 
 fn local_bridge_sessions_path() -> Result<PathBuf, String> {
     let home = env::var_os("HOME").ok_or("HOME is not set")?;
-    Ok(PathBuf::from(home).join(".nio").join("bridge-sessions.json"))
+    Ok(PathBuf::from(home)
+        .join(".nio")
+        .join("bridge-sessions.json"))
 }
 
 fn read_local_bridge_sessions() -> Result<Vec<Value>, String> {
     let path = local_bridge_sessions_path()?;
     match fs::read(&path) {
-        Ok(data) => serde_json::from_slice(&data).map_err(|e| format!("reading local bridge sessions: {e}")),
+        Ok(data) => {
+            serde_json::from_slice(&data).map_err(|e| format!("reading local bridge sessions: {e}"))
+        }
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(Vec::new()),
         Err(e) => Err(format!("reading {}: {e}", path.display())),
     }
@@ -723,11 +957,24 @@ fn write_local_bridge_sessions(sessions: &[Value]) -> Result<(), String> {
 
 fn put_local_bridge_session(mut session: Value) -> Result<Value, String> {
     let mut sessions = read_local_bridge_sessions()?;
-    let id = session.get("id").and_then(Value::as_str).unwrap_or_default().to_string();
-    if id.is_empty() { return Err("session response did not contain an id".into()); }
-    if session.get("swarm_type").is_none() { session["swarm_type"] = json!("bridge"); }
-    if session.get("turns").is_none() { session["turns"] = json!([]); }
-    if let Some(existing) = sessions.iter_mut().find(|s| s.get("id").and_then(Value::as_str) == Some(&id)) {
+    let id = session
+        .get("id")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    if id.is_empty() {
+        return Err("session response did not contain an id".into());
+    }
+    if session.get("swarm_type").is_none() {
+        session["swarm_type"] = json!("bridge");
+    }
+    if session.get("turns").is_none() {
+        session["turns"] = json!([]);
+    }
+    if let Some(existing) = sessions
+        .iter_mut()
+        .find(|s| s.get("id").and_then(Value::as_str) == Some(&id))
+    {
         *existing = session.clone();
     } else {
         sessions.push(session.clone());
@@ -737,12 +984,22 @@ fn put_local_bridge_session(mut session: Value) -> Result<Value, String> {
 }
 
 async fn create_bridge_session(
-    db: &NioDbClient, title: &str, agent: &str, model: Option<&str>, goal: Option<&str>,
+    db: &NioDbClient,
+    title: &str,
+    agent: &str,
+    model: Option<&str>,
+    goal: Option<&str>,
 ) -> Result<Value, String> {
-    match db.create_session(title, agent, model, Some("bridge"), goal, None).await {
+    match db
+        .create_session(title, agent, model, Some("bridge"), goal, None)
+        .await
+    {
         Ok(session) => put_local_bridge_session(session),
         Err(remote_error) => {
-            let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis();
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis();
             let session = json!({
                 "id": format!("bridge_local_{now}"), "title": title, "agent": agent,
                 "model": model.unwrap_or(agent), "swarm_type": "bridge", "goal": goal,
@@ -755,11 +1012,22 @@ async fn create_bridge_session(
 }
 
 async fn append_bridge_turn(
-    db: &NioDbClient, id: &str, agent: &str, model: Option<&str>, summary: &str, handoff_summary: Option<&str>, files: &[String],
+    db: &NioDbClient,
+    id: &str,
+    agent: &str,
+    model: Option<&str>,
+    summary: &str,
+    handoff_summary: Option<&str>,
+    files: &[String],
 ) -> Result<Value, String> {
-    let remote = db.append_turn_full(id, agent, model, summary, handoff_summary, files).await;
+    let remote = db
+        .append_turn_full(id, agent, model, summary, handoff_summary, files)
+        .await;
     let mut sessions = read_local_bridge_sessions()?;
-    let Some(session) = sessions.iter_mut().find(|s| s.get("id").and_then(Value::as_str) == Some(id)) else {
+    let Some(session) = sessions
+        .iter_mut()
+        .find(|s| s.get("id").and_then(Value::as_str) == Some(id))
+    else {
         return remote.map_err(|e| e);
     };
     let mut turn = json!({ "agent": agent, "model": model.unwrap_or(agent), "summary": summary, "files_touched": files });
@@ -767,8 +1035,16 @@ async fn append_bridge_turn(
         turn["handoff_summary"] = json!(hs);
     }
     push_local_turn(session, turn);
-    let mut all_files = session.get("files_touched").and_then(Value::as_array).cloned().unwrap_or_default();
-    for file in files { if !all_files.iter().any(|v| v.as_str() == Some(file)) { all_files.push(json!(file)); } }
+    let mut all_files = session
+        .get("files_touched")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    for file in files {
+        if !all_files.iter().any(|v| v.as_str() == Some(file)) {
+            all_files.push(json!(file));
+        }
+    }
     session["files_touched"] = Value::Array(all_files);
     write_local_bridge_sessions(&sessions)?;
     remote.or_else(|_| Ok(json!({"id": id})))
@@ -777,21 +1053,36 @@ async fn append_bridge_turn(
 async fn list_bridge_records(db: &NioDbClient) -> Result<Vec<Value>, String> {
     match db.list_sessions().await {
         Ok(remote_sessions) => {
-            let mut sessions: Vec<Value> = remote_sessions.into_iter().map(normalize_session_value).collect();
+            let mut sessions: Vec<Value> = remote_sessions
+                .into_iter()
+                .map(normalize_session_value)
+                .collect();
             // The list endpoint may omit turn history. Load each manifest so the
             // picker can use the latest recorded turn as its fallback title.
             for session in &mut sessions {
-                let has_turns = session.get("turns").and_then(Value::as_array).is_some_and(|turns| !turns.is_empty());
+                let has_turns = session
+                    .get("turns")
+                    .and_then(Value::as_array)
+                    .is_some_and(|turns| !turns.is_empty());
                 if has_turns {
                     continue;
                 }
-                let Some(id) = session.get("id").and_then(Value::as_str) else { continue; };
+                let Some(id) = session.get("id").and_then(Value::as_str) else {
+                    continue;
+                };
                 if let Ok(manifest) = db.get_manifest(id).await {
                     if let Some(turns) = manifest.get("recent_turns").and_then(Value::as_array) {
                         session["turns"] = Value::Array(turns.clone());
                     }
-                    for (source_key, target_key) in [("goal", "goal"), ("current_agent", "agent"), ("model", "model")] {
-                        let missing = session.get(target_key).and_then(Value::as_str).map_or(true, |value| value.trim().is_empty());
+                    for (source_key, target_key) in [
+                        ("goal", "goal"),
+                        ("current_agent", "agent"),
+                        ("model", "model"),
+                    ] {
+                        let missing = session
+                            .get(target_key)
+                            .and_then(Value::as_str)
+                            .map_or(true, |value| value.trim().is_empty());
                         if missing {
                             if let Some(value) = manifest.get(source_key) {
                                 session[target_key] = value.clone();
@@ -804,12 +1095,18 @@ async fn list_bridge_records(db: &NioDbClient) -> Result<Vec<Value>, String> {
                 for session in local {
                     let norm = normalize_session_value(session);
                     let id = norm.get("id").and_then(Value::as_str);
-                    if !sessions.iter().any(|s| s.get("id").and_then(Value::as_str) == id) {
+                    if !sessions
+                        .iter()
+                        .any(|s| s.get("id").and_then(Value::as_str) == id)
+                    {
                         sessions.push(norm);
                     }
                 }
             }
-            let mut result: Vec<Value> = sessions.into_iter().filter(|s| s.get("swarm_type").and_then(Value::as_str) != Some("assemble")).collect();
+            let mut result: Vec<Value> = sessions
+                .into_iter()
+                .filter(|s| s.get("swarm_type").and_then(Value::as_str) != Some("assemble"))
+                .collect();
             result.sort_by_key(|s| std::cmp::Reverse(extract_session_timestamp(s)));
             Ok(result)
         }
@@ -825,7 +1122,9 @@ async fn list_bridge_records(db: &NioDbClient) -> Result<Vec<Value>, String> {
 async fn get_bridge_manifest(db: &NioDbClient, id: &str) -> Result<Value, String> {
     if let Ok(mut manifest) = db.get_manifest(id).await {
         remove_placeholder_turns(&mut manifest);
-        if manifest.get("current_agent").is_none() || manifest.get("current_agent").and_then(Value::as_str) == Some("unknown") {
+        if manifest.get("current_agent").is_none()
+            || manifest.get("current_agent").and_then(Value::as_str) == Some("unknown")
+        {
             if let Ok(sess) = db.get_session(id).await {
                 if let Some(ag) = sess.get("agent") {
                     manifest["current_agent"] = ag.clone();
@@ -833,7 +1132,11 @@ async fn get_bridge_manifest(db: &NioDbClient, id: &str) -> Result<Value, String
                 if let Some(mo) = sess.get("model") {
                     manifest["model"] = mo.clone();
                 }
-                if manifest.get("goal").and_then(Value::as_str).map_or(true, |g| g.is_empty()) {
+                if manifest
+                    .get("goal")
+                    .and_then(Value::as_str)
+                    .map_or(true, |g| g.is_empty())
+                {
                     if let Some(g) = sess.get("goal") {
                         manifest["goal"] = g.clone();
                     }
@@ -843,7 +1146,9 @@ async fn get_bridge_manifest(db: &NioDbClient, id: &str) -> Result<Value, String
         return Ok(manifest);
     }
     let sessions = read_local_bridge_sessions()?;
-    let session = sessions.iter().find(|s| s.get("id").and_then(Value::as_str) == Some(id))
+    let session = sessions
+        .iter()
+        .find(|s| s.get("id").and_then(Value::as_str) == Some(id))
         .ok_or_else(|| format!("no local bridge session found for {id}"))?;
     let mut manifest = json!({
         "session_id": id,
@@ -859,19 +1164,33 @@ async fn get_bridge_manifest(db: &NioDbClient, id: &str) -> Result<Value, String
 }
 
 async fn switch_bridge_record(
-    db: &NioDbClient, id: &str, agent: &str, model: Option<&str>, reason: Option<&str>,
+    db: &NioDbClient,
+    id: &str,
+    agent: &str,
+    model: Option<&str>,
+    reason: Option<&str>,
 ) -> Result<Value, String> {
     let remote = db.switch_agent(id, agent, model, reason).await;
     let mut sessions = read_local_bridge_sessions()?;
-    if let Some(session) = sessions.iter_mut().find(|s| s.get("id").and_then(Value::as_str) == Some(id)) {
-        let previous_agent = session.get("agent").and_then(Value::as_str).unwrap_or("previous agent").to_string();
+    if let Some(session) = sessions
+        .iter_mut()
+        .find(|s| s.get("id").and_then(Value::as_str) == Some(id))
+    {
+        let previous_agent = session
+            .get("agent")
+            .and_then(Value::as_str)
+            .unwrap_or("previous agent")
+            .to_string();
         if let Some(reason) = reason.filter(|value| !value.trim().is_empty()) {
-            push_local_turn(session, json!({
-                "agent": previous_agent,
-                "model": session.get("model").and_then(Value::as_str).unwrap_or("agent default"),
-                "summary": format!("Handoff note: {reason}"),
-                "files_touched": [],
-            }));
+            push_local_turn(
+                session,
+                json!({
+                    "agent": previous_agent,
+                    "model": session.get("model").and_then(Value::as_str).unwrap_or("agent default"),
+                    "summary": format!("Handoff note: {reason}"),
+                    "files_touched": [],
+                }),
+            );
             session["goal"] = json!(reason);
         }
         session["agent"] = json!(agent);
@@ -886,7 +1205,9 @@ fn detect_git_modified_files() -> Vec<String> {
     let output = std::process::Command::new("git")
         .args(["status", "--porcelain"])
         .output();
-    let Ok(output) = output else { return Vec::new(); };
+    let Ok(output) = output else {
+        return Vec::new();
+    };
     let text = String::from_utf8_lossy(&output.stdout);
     let mut files = Vec::new();
     for line in text.lines() {
@@ -911,7 +1232,10 @@ fn push_local_turn(session: &mut Value, turn: Value) {
 }
 
 fn remove_placeholder_turns(manifest: &mut Value) {
-    if let Some(turns) = manifest.get_mut("recent_turns").and_then(Value::as_array_mut) {
+    if let Some(turns) = manifest
+        .get_mut("recent_turns")
+        .and_then(Value::as_array_mut)
+    {
         turns.retain(|turn| {
             let summary = turn.get("summary").and_then(Value::as_str).unwrap_or("");
             summary != "Switched agent" && !summary.starts_with("Switched from ")
@@ -919,7 +1243,10 @@ fn remove_placeholder_turns(manifest: &mut Value) {
     }
 }
 
-pub(crate) fn extract_agent_session_assessment(agent: &str, start_time: SystemTime) -> Option<String> {
+pub(crate) fn extract_agent_session_assessment(
+    agent: &str,
+    start_time: SystemTime,
+) -> Option<String> {
     let home = env::var("HOME").ok()?;
     let home_path = PathBuf::from(home);
 
@@ -948,7 +1275,9 @@ pub(crate) fn extract_agent_session_assessment(agent: &str, start_time: SystemTi
                 if name.starts_with('.') {
                     continue;
                 }
-                let modified = fs::metadata(&dir).and_then(|m| m.modified()).unwrap_or(SystemTime::UNIX_EPOCH);
+                let modified = fs::metadata(&dir)
+                    .and_then(|m| m.modified())
+                    .unwrap_or(SystemTime::UNIX_EPOCH);
                 let duration = start_time.duration_since(modified).unwrap_or_default();
                 // Allow up to 10 minutes prior to session start or anything after start_time
                 if modified < start_time && duration.as_secs() > 600 {
@@ -970,7 +1299,8 @@ pub(crate) fn extract_agent_session_assessment(agent: &str, start_time: SystemTi
                     for line in content.lines() {
                         if let Ok(val) = serde_json::from_str::<Value>(line) {
                             if val.get("source").and_then(Value::as_str) == Some("MODEL")
-                                && val.get("type").and_then(Value::as_str) == Some("PLANNER_RESPONSE")
+                                && val.get("type").and_then(Value::as_str)
+                                    == Some("PLANNER_RESPONSE")
                             {
                                 if let Some(text) = val.get("content").and_then(Value::as_str) {
                                     let trimmed = text.trim();
@@ -991,7 +1321,8 @@ pub(crate) fn extract_agent_session_assessment(agent: &str, start_time: SystemTi
             let history_path = home_path.join(".codex/history.jsonl");
             if history_path.is_file() {
                 if let Ok(content) = fs::read_to_string(&history_path) {
-                    let mut lines: Vec<&str> = content.lines().filter(|l| !l.trim().is_empty()).collect();
+                    let mut lines: Vec<&str> =
+                        content.lines().filter(|l| !l.trim().is_empty()).collect();
                     lines.reverse();
                     for line in lines.iter().take(5) {
                         if let Ok(val) = serde_json::from_str::<Value>(line) {
@@ -1015,7 +1346,9 @@ pub(crate) fn extract_agent_session_assessment(agent: &str, start_time: SystemTi
                         if entry.path().is_dir() {
                             if let Ok(sub) = fs::read_dir(entry.path()) {
                                 for s in sub.flatten() {
-                                    if s.path().extension().and_then(|x| x.to_str()) == Some("jsonl") {
+                                    if s.path().extension().and_then(|x| x.to_str())
+                                        == Some("jsonl")
+                                    {
                                         files.push(s.path());
                                     }
                                 }
@@ -1034,12 +1367,19 @@ pub(crate) fn extract_agent_session_assessment(agent: &str, start_time: SystemTi
                             let mut latest: Option<String> = None;
                             for line in content.lines() {
                                 if let Ok(val) = serde_json::from_str::<Value>(line) {
-                                    if val.get("type").and_then(Value::as_str) == Some("assistant") {
+                                    if val.get("type").and_then(Value::as_str) == Some("assistant")
+                                    {
                                         if let Some(msg) = val.get("message") {
-                                            if let Some(arr) = msg.get("content").and_then(Value::as_array) {
+                                            if let Some(arr) =
+                                                msg.get("content").and_then(Value::as_array)
+                                            {
                                                 for item in arr {
-                                                    if item.get("type").and_then(Value::as_str) == Some("text") {
-                                                        if let Some(txt) = item.get("text").and_then(Value::as_str) {
+                                                    if item.get("type").and_then(Value::as_str)
+                                                        == Some("text")
+                                                    {
+                                                        if let Some(txt) =
+                                                            item.get("text").and_then(Value::as_str)
+                                                        {
                                                             let trimmed = txt.trim();
                                                             if !trimmed.is_empty() {
                                                                 latest = Some(trimmed.to_string());
@@ -1077,14 +1417,39 @@ pub(crate) async fn sync_local_bridge_sessions_to_db(db: &NioDbClient) {
 
     for s in &mut local_sessions {
         if s.get("local_only").and_then(Value::as_bool) == Some(true) {
-            let title = s.get("title").and_then(Value::as_str).unwrap_or("Bridge session").to_string();
-            let agent = s.get("agent").and_then(Value::as_str).unwrap_or("agy").to_string();
-            let model = s.get("model").and_then(Value::as_str).map(|s| s.to_string());
+            let title = s
+                .get("title")
+                .and_then(Value::as_str)
+                .unwrap_or("Bridge session")
+                .to_string();
+            let agent = s
+                .get("agent")
+                .and_then(Value::as_str)
+                .unwrap_or("agy")
+                .to_string();
+            let model = s
+                .get("model")
+                .and_then(Value::as_str)
+                .map(|s| s.to_string());
             let goal = s.get("goal").and_then(Value::as_str).map(|s| s.to_string());
 
-            if let Ok(remote_session) = db.create_session(&title, &agent, model.as_deref(), Some("bridge"), goal.as_deref(), None).await {
+            if let Ok(remote_session) = db
+                .create_session(
+                    &title,
+                    &agent,
+                    model.as_deref(),
+                    Some("bridge"),
+                    goal.as_deref(),
+                    None,
+                )
+                .await
+            {
                 if let Some(remote_id) = remote_session.get("id").and_then(Value::as_str) {
-                    let old_id = s.get("id").and_then(Value::as_str).unwrap_or("").to_string();
+                    let old_id = s
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string();
                     s["id"] = json!(remote_id);
                     s["local_only"] = json!(false);
                     s["remote_error"] = json!(null);
@@ -1093,19 +1458,37 @@ pub(crate) async fn sync_local_bridge_sessions_to_db(db: &NioDbClient) {
                     // Sync turns
                     if let Some(turns) = s.get("turns").and_then(Value::as_array).cloned() {
                         for turn in turns {
-                            let tagent = turn.get("agent").and_then(Value::as_str).unwrap_or(&agent);
+                            let tagent =
+                                turn.get("agent").and_then(Value::as_str).unwrap_or(&agent);
                             let tmodel = turn.get("model").and_then(Value::as_str);
-                            let tsummary = turn.get("summary").and_then(Value::as_str).unwrap_or("");
+                            let tsummary =
+                                turn.get("summary").and_then(Value::as_str).unwrap_or("");
                             let hs = turn.get("handoff_summary").and_then(Value::as_str);
                             let summary_to_post = tsummary.to_string();
-                            let tfiles: Vec<String> = turn.get("files_touched")
+                            let tfiles: Vec<String> = turn
+                                .get("files_touched")
                                 .and_then(Value::as_array)
-                                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                                .map(|arr| {
+                                    arr.iter()
+                                        .filter_map(|v| v.as_str().map(String::from))
+                                        .collect()
+                                })
                                 .unwrap_or_default();
-                            let _ = db.append_turn_full(remote_id, tagent, tmodel, &summary_to_post, hs, &tfiles).await;
+                            let _ = db
+                                .append_turn_full(
+                                    remote_id,
+                                    tagent,
+                                    tmodel,
+                                    &summary_to_post,
+                                    hs,
+                                    &tfiles,
+                                )
+                                .await;
                         }
                     }
-                    eprintln!("  \x1b[32m✓ Local bridge session {old_id} migrated to NioDB as {remote_id}\x1b[0m");
+                    eprintln!(
+                        "  \x1b[32m✓ Local bridge session {old_id} migrated to NioDB as {remote_id}\x1b[0m"
+                    );
                 }
             }
         }

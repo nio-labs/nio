@@ -9821,7 +9821,13 @@ pub(crate) fn select_menu_option_b(
             .map(|&idx| terminal_text_width(items[idx].0))
             .max()
             .unwrap_or(7)
-            .min(terminal::size().map(|(columns, _)| columns as usize).unwrap_or(80).saturating_sub(20).max(8));
+            .min(
+                terminal::size()
+                    .map(|(columns, _)| columns as usize)
+                    .unwrap_or(80)
+                    .saturating_sub(20)
+                    .max(8),
+            );
         let mut rows = matching
             .iter()
             .enumerate()
@@ -9833,29 +9839,26 @@ pub(crate) fn select_menu_option_b(
                     " "
                 };
                 let check = if *active { "\x1b[1;32m✓\x1b[0m" } else { " " };
-                
+
                 let term_width = terminal::size().map(|(c, _)| c as usize).unwrap_or(80);
                 // box width is term_width - 1, inner content width is box_width - 2 = term_width - 3
                 let inner_width = term_width.saturating_sub(3);
-                
+
                 let left_str = format!(" {pointer} {check} {}. ", display_idx + 1);
                 let left_len = terminal_text_width(&left_str);
-                
+
                 let desc_len = terminal_text_width(desc);
                 // Reserve space for left_str and desc. Allow name to take the rest.
                 let max_name_len = inner_width.saturating_sub(left_len + desc_len + 1);
-                
+
                 // Truncate name if it exceeds available space
                 let clipped_name = clip_terminal_text(name, max_name_len);
                 let name_len = terminal_text_width(&clipped_name);
-                
+
                 // Calculate padding to push desc to the right
                 let pad_len = inner_width.saturating_sub(left_len + name_len + desc_len);
-                
-                format!(
-                    "{left_str}{clipped_name}{}{desc}",
-                    " ".repeat(pad_len)
-                )
+
+                format!("{left_str}{clipped_name}{}{desc}", " ".repeat(pad_len))
             })
             .collect::<Vec<_>>();
 
@@ -9962,7 +9965,8 @@ pub(crate) fn select_menu_option_b(
         stdout,
         crossterm::cursor::MoveUp(1),
         crossterm::terminal::Clear(crossterm::terminal::ClearType::CurrentLine)
-    ).map_err(|e| format!("clearing menu spacing: {e}"))?;
+    )
+    .map_err(|e| format!("clearing menu spacing: {e}"))?;
     let _ = stdout.flush();
     guard.release();
     result

@@ -4,9 +4,9 @@
 //! delegating roles (Planner, Coder, Tester) across installed agents (agy, codex, claude),
 //! orchestrating execution through NioDB shared context and task queues.
 
+use crate::Options;
 use crate::agent_runner::{detect_agents, run_agent_streaming};
 use crate::niodb::NioDbClient;
-use crate::Options;
 use serde_json::json;
 use std::io::{self, IsTerminal, Write};
 
@@ -23,7 +23,11 @@ pub async fn command(options: &Options) -> Result<(), String> {
     let mut flag_coder = None;
     let mut flag_tester = None;
 
-    let mut i = if sub.is_some() && !sub.unwrap().starts_with('-') { 1 } else { 0 };
+    let mut i = if sub.is_some() && !sub.unwrap().starts_with('-') {
+        1
+    } else {
+        0
+    };
     while i < args.len() {
         let arg = &args[i];
         if (arg == "--goal" || arg == "--prompt") && i + 1 < args.len() {
@@ -83,27 +87,27 @@ pub async fn command(options: &Options) -> Result<(), String> {
             .await
         }
         Some("status") => {
-            let swarm_id = args.get(1).map(String::as_str).ok_or_else(|| {
-                "Usage: nio assemble status <swarm_id>".to_string()
-            })?;
+            let swarm_id = args
+                .get(1)
+                .map(String::as_str)
+                .ok_or_else(|| "Usage: nio assemble status <swarm_id>".to_string())?;
             show_swarm_status(&db, swarm_id).await
         }
         Some("tasks") => {
-            let swarm_id = args.get(1).map(String::as_str).ok_or_else(|| {
-                "Usage: nio assemble tasks <swarm_id>".to_string()
-            })?;
+            let swarm_id = args
+                .get(1)
+                .map(String::as_str)
+                .ok_or_else(|| "Usage: nio assemble tasks <swarm_id>".to_string())?;
             show_swarm_tasks(&db, swarm_id).await
         }
-        Some("list") => {
-            list_swarms(&db).await
-        }
+        Some("list") => list_swarms(&db).await,
         Some("help") | Some("--help") | Some("-h") => {
             print_assemble_help();
             Ok(())
         }
-        Some(other) => {
-            Err(format!("Unknown assemble command '{other}'. Run 'nio assemble --help'."))
-        }
+        Some(other) => Err(format!(
+            "Unknown assemble command '{other}'. Run 'nio assemble --help'."
+        )),
     }
 }
 
@@ -164,17 +168,29 @@ async fn run_empty_state_assemble_display(db: &NioDbClient) -> Result<(), String
         println!("    \x1b[31m✕ No external agent binaries detected.\x1b[0m");
     } else {
         for a in &agents {
-            println!("    \x1b[32m●\x1b[0m \x1b[1m{:<8}\x1b[0m : {}", a.id, a.name);
+            println!(
+                "    \x1b[32m●\x1b[0m \x1b[1m{:<8}\x1b[0m : {}",
+                a.id, a.name
+            );
         }
     }
 
     println!("\n  \x1b[1mNioDB Swarm Ledger:\x1b[0m");
     if db_ok {
-        println!("    \x1b[32m●\x1b[0m Status   : Connected ({})", db.base_url);
+        println!(
+            "    \x1b[32m●\x1b[0m Status   : Connected ({})",
+            db.base_url
+        );
     } else {
-        println!("    \x1b[33m▲\x1b[0m Status   : Local storage fallback ({})", db.base_url);
+        println!(
+            "    \x1b[33m▲\x1b[0m Status   : Local storage fallback ({})",
+            db.base_url
+        );
     }
-    println!("    ● Swarms   : {} active swarms (Empty State)", swarms.len());
+    println!(
+        "    ● Swarms   : {} active swarms (Empty State)",
+        swarms.len()
+    );
 
     println!("\n  Each agent uses its own configured model by default.");
 
@@ -190,7 +206,10 @@ async fn run_empty_state_assemble_display(db: &NioDbClient) -> Result<(), String
     Ok(())
 }
 
-async fn run_empty_state_assemble(db: &NioDbClient, preselected_model: Option<&str>) -> Result<(), String> {
+async fn run_empty_state_assemble(
+    db: &NioDbClient,
+    preselected_model: Option<&str>,
+) -> Result<(), String> {
     let agents = detect_agents();
     let db_ok = db.is_healthy().await;
     let mut swarms = Vec::new();
@@ -219,15 +238,24 @@ async fn run_empty_state_assemble(db: &NioDbClient, preselected_model: Option<&s
         println!("    \x1b[31m✕ No external agent binaries detected.\x1b[0m");
     } else {
         for a in &agents {
-            println!("    \x1b[32m●\x1b[0m \x1b[1m{:<8}\x1b[0m : {}", a.id, a.name);
+            println!(
+                "    \x1b[32m●\x1b[0m \x1b[1m{:<8}\x1b[0m : {}",
+                a.id, a.name
+            );
         }
     }
 
     println!("\n  \x1b[1mNioDB Swarm Ledger:\x1b[0m");
     if db_ok {
-        println!("    \x1b[32m●\x1b[0m Status   : Connected ({})", db.base_url);
+        println!(
+            "    \x1b[32m●\x1b[0m Status   : Connected ({})",
+            db.base_url
+        );
     } else {
-        println!("    \x1b[33m▲\x1b[0m Status   : Local storage fallback ({})", db.base_url);
+        println!(
+            "    \x1b[33m▲\x1b[0m Status   : Local storage fallback ({})",
+            db.base_url
+        );
     }
     println!("    ● Swarms   : {} active swarms", swarms.len());
 
@@ -236,8 +264,10 @@ async fn run_empty_state_assemble(db: &NioDbClient, preselected_model: Option<&s
     }
 
     println!("\n  \x1b[1mAssemble Actions:\x1b[0m");
-    let mut actions = vec!["Start New Swarm — Nio Autonomous Chair (Nio decides roster)".to_string(),
-        "Start New Swarm — Custom Interactive Roster (Pick roles manually)".to_string()];
+    let mut actions = vec![
+        "Start New Swarm — Nio Autonomous Chair (Nio decides roster)".to_string(),
+        "Start New Swarm — Custom Interactive Roster (Pick roles manually)".to_string(),
+    ];
     if !swarms.is_empty() {
         actions.push("Inspect Active Swarms & Tasks".to_string());
     }
@@ -265,14 +295,19 @@ async fn run_empty_state_assemble(db: &NioDbClient, preselected_model: Option<&s
     run_interactive_nio_chair(db, preselected_model).await
 }
 
-async fn run_interactive_nio_chair(db: &NioDbClient, preselected_model: Option<&str>) -> Result<(), String> {
+async fn run_interactive_nio_chair(
+    db: &NioDbClient,
+    preselected_model: Option<&str>,
+) -> Result<(), String> {
     println!("\n  \x1b[1m1. Project Goal / Objective:\x1b[0m");
     println!("  Enter the high-level goal you want the AI swarm to achieve:");
     print!("  > ");
     io::stdout().flush().map_err(|e| e.to_string())?;
 
     let mut goal = String::new();
-    io::stdin().read_line(&mut goal).map_err(|e| e.to_string())?;
+    io::stdin()
+        .read_line(&mut goal)
+        .map_err(|e| e.to_string())?;
     let goal = goal.trim();
     if goal.is_empty() {
         return Err("Swarm goal cannot be empty.".to_string());
@@ -283,7 +318,8 @@ async fn run_interactive_nio_chair(db: &NioDbClient, preselected_model: Option<&
 
     // Autonomous Chair Roster Decision
     println!("\n  \x1b[36m✦ Nio Autonomous Chair Analyzing Goal & Roster Requirements...\x1b[0m");
-    let (planner, coder, tester, rationale) = decide_roster(goal, selected_model.as_deref().unwrap_or("agent default"));
+    let (planner, coder, tester, rationale) =
+        decide_roster(goal, selected_model.as_deref().unwrap_or("agent default"));
 
     println!(
         r#"
@@ -303,7 +339,9 @@ async fn run_interactive_nio_chair(db: &NioDbClient, preselected_model: Option<&
     print!("\n  Launch Swarm Execution? [Y/n]: ");
     io::stdout().flush().map_err(|e| e.to_string())?;
     let mut confirm = String::new();
-    io::stdin().read_line(&mut confirm).map_err(|e| e.to_string())?;
+    io::stdin()
+        .read_line(&mut confirm)
+        .map_err(|e| e.to_string())?;
     let confirm = confirm.trim().to_ascii_lowercase();
     if confirm == "n" || confirm == "no" {
         println!("  Swarm launch aborted.");
@@ -326,7 +364,9 @@ async fn run_interactive_custom_roster(db: &NioDbClient) -> Result<(), String> {
     print!("  > ");
     io::stdout().flush().map_err(|e| e.to_string())?;
     let mut goal = String::new();
-    io::stdin().read_line(&mut goal).map_err(|e| e.to_string())?;
+    io::stdin()
+        .read_line(&mut goal)
+        .map_err(|e| e.to_string())?;
     let goal = goal.trim();
     if goal.is_empty() {
         return Err("Swarm goal cannot be empty.".to_string());
@@ -336,14 +376,24 @@ async fn run_interactive_custom_roster(db: &NioDbClient) -> Result<(), String> {
     let available: Vec<String> = if !detected.is_empty() {
         detected.iter().map(|a| a.id.clone()).collect()
     } else {
-        vec!["agy".into(), "codex".into(), "claude".into(), "kilo".into(), "copilot".into()]
+        vec![
+            "agy".into(),
+            "codex".into(),
+            "claude".into(),
+            "kilo".into(),
+            "copilot".into(),
+        ]
     };
 
     println!("\n  \x1b[1m2. Select Planner Agent:\x1b[0m");
     let planner = prompt_agent_choice(&available, "agy")?;
 
     println!("\n  \x1b[1m3. Select Coder Agent:\x1b[0m");
-    let coder_fallback = if available.contains(&"kilo".to_string()) { "kilo" } else { "codex" };
+    let coder_fallback = if available.contains(&"kilo".to_string()) {
+        "kilo"
+    } else {
+        "codex"
+    };
     let coder = prompt_agent_choice(&available, coder_fallback)?;
 
     println!("\n  \x1b[1m4. Select Tester Agent:\x1b[0m");
@@ -354,7 +404,10 @@ async fn run_interactive_custom_roster(db: &NioDbClient) -> Result<(), String> {
 }
 
 fn prompt_agent_choice(available: &[String], fallback: &str) -> Result<String, String> {
-    let default = available.iter().position(|agent| agent == fallback).unwrap_or(0);
+    let default = available
+        .iter()
+        .position(|agent| agent == fallback)
+        .unwrap_or(0);
     let menu_items: Vec<(&str, &str, bool)> = available
         .iter()
         .map(|agent| (agent.as_str(), "", false))
@@ -368,7 +421,12 @@ fn prompt_agent_choice(available: &[String], fallback: &str) -> Result<String, S
 fn decide_roster<'a>(
     goal: &str,
     base_model: &'a str,
-) -> ((&'static str, &'a str), (&'static str, &'a str), (&'static str, &'a str), String) {
+) -> (
+    (&'static str, &'a str),
+    (&'static str, &'a str),
+    (&'static str, &'a str),
+    String,
+) {
     let lower = goal.to_ascii_lowercase();
 
     let planner = ("agy", base_model);
@@ -408,25 +466,42 @@ async fn create_and_run_swarm(
     println!("\n\x1b[32m✦ Initializing Swarm in NioDB...\x1b[0m");
     let swarm_title = format!("Assemble: {}", goal);
     let session = match db
-        .create_session(&swarm_title, "nio", model, Some("assemble"), Some(goal), Some(agents_config))
+        .create_session(
+            &swarm_title,
+            "nio",
+            model,
+            Some("assemble"),
+            Some(goal),
+            Some(agents_config),
+        )
         .await
     {
         Ok(v) => v,
         Err(e) => {
-            eprintln!("\x1b[33mNotice: NioDB session creation ({e}), continuing in local conductor mode.\x1b[0m");
+            eprintln!(
+                "\x1b[33mNotice: NioDB session creation ({e}), continuing in local conductor mode.\x1b[0m"
+            );
             json!({ "id": "swarm_local" })
         }
     };
 
-    let swarm_id = session.get("id").and_then(|v| v.as_str()).unwrap_or("swarm_local");
+    let swarm_id = session
+        .get("id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("swarm_local");
     println!("  \x1b[1mSwarm ID   :\x1b[0m \x1b[36m{}\x1b[0m", swarm_id);
     println!("  \x1b[1mSwarm Goal :\x1b[0m {}", goal);
 
     // ==========================================
     // STAGE 1: PLANNING
     // ==========================================
-    println!("\n  \x1b[1;34m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\x1b[0m");
-    println!("  \x1b[1;34m[STAGE 1/3] PLANNER: {} ({})\x1b[0m", planner_ag, model_label);
+    println!(
+        "\n  \x1b[1;34m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\x1b[0m"
+    );
+    println!(
+        "  \x1b[1;34m[STAGE 1/3] PLANNER: {} ({})\x1b[0m",
+        planner_ag, model_label
+    );
     println!("  \x1b[2mDecomposing goal into actionable tasks...\x1b[0m\n");
 
     let plan_prompt = format!(
@@ -440,19 +515,47 @@ async fn create_and_run_swarm(
         goal
     );
 
-    let (_plan_code, plan_output) = run_agent_streaming(planner_ag, model, &plan_prompt, Some("planner")).await?;
+    let (_plan_code, plan_output) =
+        run_agent_streaming(planner_ag, model, &plan_prompt, Some("planner")).await?;
 
-    let _ = db.append_turn(swarm_id, planner_ag, model, "Completed architecture and planning breakdown", &[]).await;
+    let _ = db
+        .append_turn(
+            swarm_id,
+            planner_ag,
+            model,
+            "Completed architecture and planning breakdown",
+            &[],
+        )
+        .await;
 
     // Create task entries in NioDB
-    let _ = db.create_task(swarm_id, "Implement Code Changes", "coder", json!({ "goal": goal })).await;
-    let _ = db.create_task(swarm_id, "Verify and Test Functionality", "tester", json!({ "goal": goal })).await;
+    let _ = db
+        .create_task(
+            swarm_id,
+            "Implement Code Changes",
+            "coder",
+            json!({ "goal": goal }),
+        )
+        .await;
+    let _ = db
+        .create_task(
+            swarm_id,
+            "Verify and Test Functionality",
+            "tester",
+            json!({ "goal": goal }),
+        )
+        .await;
 
     // ==========================================
     // STAGE 2: CODING
     // ==========================================
-    println!("\n  \x1b[1;32m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\x1b[0m");
-    println!("  \x1b[1;32m[STAGE 2/3] CODER: {} ({})\x1b[0m", coder_ag, model_label);
+    println!(
+        "\n  \x1b[1;32m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\x1b[0m"
+    );
+    println!(
+        "  \x1b[1;32m[STAGE 2/3] CODER: {} ({})\x1b[0m",
+        coder_ag, model_label
+    );
     println!("  \x1b[2mStreaming implementation agent...\x1b[0m\n");
 
     let code_prompt = format!(
@@ -463,14 +566,28 @@ async fn create_and_run_swarm(
         goal, plan_output
     );
 
-    let (_code_res, code_output) = run_agent_streaming(coder_ag, model, &code_prompt, Some("coder")).await?;
-    let _ = db.append_turn(swarm_id, coder_ag, model, "Executed implementation changes", &[]).await;
+    let (_code_res, code_output) =
+        run_agent_streaming(coder_ag, model, &code_prompt, Some("coder")).await?;
+    let _ = db
+        .append_turn(
+            swarm_id,
+            coder_ag,
+            model,
+            "Executed implementation changes",
+            &[],
+        )
+        .await;
 
     // ==========================================
     // STAGE 3: TESTING & QA
     // ==========================================
-    println!("\n  \x1b[1;35m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\x1b[0m");
-    println!("  \x1b[1;35m[STAGE 3/3] TESTER: {} ({})\x1b[0m", tester_ag, model_label);
+    println!(
+        "\n  \x1b[1;35m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\x1b[0m"
+    );
+    println!(
+        "  \x1b[1;35m[STAGE 3/3] TESTER: {} ({})\x1b[0m",
+        tester_ag, model_label
+    );
     println!("  \x1b[2mStreaming test and verification agent...\x1b[0m\n");
 
     let test_prompt = format!(
@@ -481,14 +598,28 @@ async fn create_and_run_swarm(
         goal, code_output
     );
 
-    let (_test_res, _test_output) = run_agent_streaming(tester_ag, model, &test_prompt, Some("tester")).await?;
-    let _ = db.append_turn(swarm_id, tester_ag, model, "Completed test verification", &[]).await;
+    let (_test_res, _test_output) =
+        run_agent_streaming(tester_ag, model, &test_prompt, Some("tester")).await?;
+    let _ = db
+        .append_turn(
+            swarm_id,
+            tester_ag,
+            model,
+            "Completed test verification",
+            &[],
+        )
+        .await;
 
     // ==========================================
     // CONCLUSION
     // ==========================================
-    println!("\n  \x1b[1;32m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\x1b[0m");
-    println!("  \x1b[1;32m✦ Autonomous Swarm Execution Complete [ID: {}]\x1b[0m", swarm_id);
+    println!(
+        "\n  \x1b[1;32m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\x1b[0m"
+    );
+    println!(
+        "  \x1b[1;32m✦ Autonomous Swarm Execution Complete [ID: {}]\x1b[0m",
+        swarm_id
+    );
     println!("  All turns recorded and synchronized into NioDB Merkle ledger.");
     println!("  View swarm details: nio assemble status {}\n", swarm_id);
 
@@ -501,16 +632,31 @@ async fn show_swarm_status(db: &NioDbClient, swarm_id: &str) -> Result<(), Strin
 
     println!("\n  \x1b[1mSwarm Details:\x1b[0m");
     println!("    ID    : {}", swarm_id);
-    println!("    Title : {}", session.get("title").and_then(|v| v.as_str()).unwrap_or(""));
-    println!("    Model : {}", session.get("model").and_then(|v| v.as_str()).unwrap_or(""));
+    println!(
+        "    Title : {}",
+        session.get("title").and_then(|v| v.as_str()).unwrap_or("")
+    );
+    println!(
+        "    Model : {}",
+        session.get("model").and_then(|v| v.as_str()).unwrap_or("")
+    );
 
     println!("\n  \x1b[1mTask Queue ({} tasks):\x1b[0m", tasks.len());
     for t in tasks {
         let title = t.get("title").and_then(|v| v.as_str()).unwrap_or("");
         let role = t.get("role").and_then(|v| v.as_str()).unwrap_or("");
-        let status = t.get("status").and_then(|v| v.as_str()).unwrap_or("pending");
-        let agent = t.get("claimed_by").and_then(|v| v.as_str()).unwrap_or("unassigned");
-        println!("    • [{:<7}] {} (Role: {}, Agent: {})", status, title, role, agent);
+        let status = t
+            .get("status")
+            .and_then(|v| v.as_str())
+            .unwrap_or("pending");
+        let agent = t
+            .get("claimed_by")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unassigned");
+        println!(
+            "    • [{:<7}] {} (Role: {}, Agent: {})",
+            status, title, role, agent
+        );
     }
     println!();
     Ok(())
@@ -518,7 +664,10 @@ async fn show_swarm_status(db: &NioDbClient, swarm_id: &str) -> Result<(), Strin
 
 async fn show_swarm_tasks(db: &NioDbClient, swarm_id: &str) -> Result<(), String> {
     let tasks = db.list_tasks(swarm_id).await?;
-    println!("{}", serde_json::to_string_pretty(&tasks).unwrap_or_default());
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&tasks).unwrap_or_default()
+    );
     Ok(())
 }
 

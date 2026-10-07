@@ -4,8 +4,8 @@
 //! handling authentication tokens, session synchronization, context handoff manifests,
 //! dead-ends logging, and swarm task queues.
 
-use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
-use serde_json::{json, Value};
+use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue};
+use serde_json::{Value, json};
 use std::env;
 use std::fs;
 use std::path::PathBuf;
@@ -20,13 +20,15 @@ pub struct NioDbClient {
 impl NioDbClient {
     pub fn new() -> Self {
         let base_url = env::var("NIODB_URL")
-            .or_else(|_| env::var("NIODB_LISTEN").map(|l| {
-                if l.starts_with("http://") || l.starts_with("https://") {
-                    l
-                } else {
-                    format!("http://{l}")
-                }
-            }))
+            .or_else(|_| {
+                env::var("NIODB_LISTEN").map(|l| {
+                    if l.starts_with("http://") || l.starts_with("https://") {
+                        l
+                    } else {
+                        format!("http://{l}")
+                    }
+                })
+            })
             .unwrap_or_else(|_| "http://127.0.0.1:7432".to_string());
 
         let token = find_token();
@@ -202,7 +204,8 @@ impl NioDbClient {
         model: Option<&str>,
         reason: Option<&str>,
     ) -> Result<Value, String> {
-        self.switch_agent_full(id, to_agent, model, reason, None).await
+        self.switch_agent_full(id, to_agent, model, reason, None)
+            .await
     }
 
     pub async fn switch_agent_full(
@@ -253,7 +256,8 @@ impl NioDbClient {
         summary: &str,
         files_touched: &[String],
     ) -> Result<Value, String> {
-        self.append_turn_full(id, agent, model, summary, None, files_touched).await
+        self.append_turn_full(id, agent, model, summary, None, files_touched)
+            .await
     }
 
     pub async fn append_turn_full(
@@ -481,7 +485,10 @@ impl NioDbClient {
             return Err(format!("NioDB error ({status}): {text}"));
         }
 
-        let val: Value = resp.json().await.map_err(|e| format!("Failed to parse dead-ends response: {e}"))?;
+        let val: Value = resp
+            .json()
+            .await
+            .map_err(|e| format!("Failed to parse dead-ends response: {e}"))?;
         if let Some(items) = val.get("dead_ends").and_then(|i| i.as_array()) {
             Ok(items.clone())
         } else {

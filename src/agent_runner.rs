@@ -118,9 +118,18 @@ pub fn format_handoff_prompt(goal: &str, manifest_opt: Option<&serde_json::Value
         return goal.to_string();
     };
 
-    let session_id = manifest.get("session_id").and_then(|v| v.as_str()).unwrap_or("unknown");
-    let prev_agent = manifest.get("current_agent").and_then(|v| v.as_str()).unwrap_or("none");
-    let model = manifest.get("model").and_then(|v| v.as_str()).unwrap_or("default");
+    let session_id = manifest
+        .get("session_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
+    let prev_agent = manifest
+        .get("current_agent")
+        .and_then(|v| v.as_str())
+        .unwrap_or("none");
+    let model = manifest
+        .get("model")
+        .and_then(|v| v.as_str())
+        .unwrap_or("default");
 
     let mut text = format!(
         "[NIO AGENT CONTEXT HANDOFF]\n\
@@ -133,9 +142,15 @@ pub fn format_handoff_prompt(goal: &str, manifest_opt: Option<&serde_json::Value
             has_turns = true;
             text.push_str("\n[RECENT COMPLETED TURNS & ASSESSMENTS]\n");
             for turn in turns {
-                let ag = turn.get("agent").and_then(|v| v.as_str()).unwrap_or("agent");
+                let ag = turn
+                    .get("agent")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("agent");
                 let sm = turn.get("summary").and_then(|v| v.as_str()).unwrap_or("");
-                let hs = turn.get("handoff_summary").and_then(|v| v.as_str()).unwrap_or("");
+                let hs = turn
+                    .get("handoff_summary")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
                 if !sm.is_empty() {
                     text.push_str(&format!("  • [{ag}]:\n    {sm}\n"));
                 }
@@ -161,10 +176,20 @@ pub fn format_handoff_prompt(goal: &str, manifest_opt: Option<&serde_json::Value
         if !dead_ends.is_empty() {
             text.push_str("\nKnown Dead-Ends (DO NOT REPEAT):\n");
             for de in dead_ends {
-                let iss = de.get("issue").or_else(|| de.get("hypothesis")).and_then(|v| v.as_str()).unwrap_or("");
+                let iss = de
+                    .get("issue")
+                    .or_else(|| de.get("hypothesis"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
                 let att = de.get("attempt").and_then(|v| v.as_str()).unwrap_or("");
-                let why = de.get("why").or_else(|| de.get("reason")).and_then(|v| v.as_str()).unwrap_or("");
-                text.push_str(&format!("  • Issue: {iss} | Attempted: {att} | Why Failed: {why}\n"));
+                let why = de
+                    .get("why")
+                    .or_else(|| de.get("reason"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                text.push_str(&format!(
+                    "  • Issue: {iss} | Attempted: {att} | Why Failed: {why}\n"
+                ));
             }
         }
     }
@@ -201,8 +226,9 @@ pub fn run_agent_interactive(
     model: Option<&str>,
     initial_prompt: Option<&str>,
 ) -> Result<i32, String> {
-    let binary = find_binary(agent_id)
-        .ok_or_else(|| format!("Binary for '{agent_id}' not found in PATH or standard agent locations"))?;
+    let binary = find_binary(agent_id).ok_or_else(|| {
+        format!("Binary for '{agent_id}' not found in PATH or standard agent locations")
+    })?;
 
     let mut cmd = std::process::Command::new(binary);
     cmd.stdin(Stdio::inherit())
@@ -329,8 +355,9 @@ pub async fn run_agent_streaming(
     prompt: &str,
     tag: Option<&str>,
 ) -> Result<(i32, String), String> {
-    let binary = find_binary(agent_id)
-        .ok_or_else(|| format!("Binary for '{agent_id}' not found in PATH or standard agent locations"))?;
+    let binary = find_binary(agent_id).ok_or_else(|| {
+        format!("Binary for '{agent_id}' not found in PATH or standard agent locations")
+    })?;
 
     let mut cmd = Command::new(&binary);
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
@@ -405,7 +432,9 @@ pub async fn run_agent_streaming(
     let mut stdout_reader = BufReader::new(stdout).lines();
     let mut stderr_reader = BufReader::new(stderr).lines();
 
-    let prefix = tag.map(|t| format!("\x1b[36m[{t}]\x1b[0m ")).unwrap_or_default();
+    let prefix = tag
+        .map(|t| format!("\x1b[36m[{t}]\x1b[0m "))
+        .unwrap_or_default();
     let mut accumulated = String::new();
 
     loop {
