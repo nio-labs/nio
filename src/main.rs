@@ -3517,11 +3517,13 @@ async fn request_context_summary(
     messages: &[Value],
 ) -> Result<String, String> {
     let transcript = context_summary_transcript(messages);
+    let persona_section = persona::format_persona_prompt(&load_user_config()?.persona).1;
     let body = json!({
         "model": model,
         "stream": false,
         "messages": [
-            {"role":"system", "content":"Summarize this coding-agent conversation so work can continue with less context. Preserve the user's active goal and constraints, decisions, relevant files and facts, changes already made, errors, and unresolved steps. Omit detail that is no longer useful. Do not invent facts. Return a concise summary, ideally under 700 words."},
+            {"role":"system", "content":format!("Summarize this coding-agent conversation so work can continue with less context. Preserve the user's active goal and constraints, decisions, relevant files and facts, changes already made, errors, and unresolved steps. Omit detail that is no longer useful. Do not invent facts. Return a concise summary, ideally under 700 words. {}",
+            persona_section)},
             {"role":"user", "content": transcript}
         ]
     });
@@ -4924,6 +4926,7 @@ async fn request_followup_suggestions(
 ) -> Result<Vec<String>, String> {
     let (gateway, model_id) = split_model_selector(model)?;
     let (base_url, key) = resolve_model_provider(options, gateway, model_id)?;
+    let persona_section = persona::format_persona_prompt(&load_user_config()?.persona).1;
 
     let mut context = history
         .iter()
@@ -4939,7 +4942,8 @@ async fn request_followup_suggestions(
     context.reverse();
     let mut messages = vec![json!({
         "role":"system",
-        "content":"Suggest two or three concise next-step prompts based specifically on the latest user request and assistant answer. Each must refer to details from this conversation and offer a distinct action; do not use generic prompts such as reviewing key files or explaining components unless directly relevant. Return only a JSON array of strings, with each prompt under 100 characters."
+        "content":format!("Suggest two or three concise next-step prompts based specifically on the latest user request and assistant answer. Each must refer to details from this conversation and offer a distinct action; do not use generic prompts such as reviewing key files or explaining components unless directly relevant. Return only a JSON array of strings, with each prompt under 100 characters. {}",
+        persona_section)
     })];
     messages.extend(context);
 
@@ -5727,7 +5731,11 @@ async fn run_agent_turn_inner(
                 retried_leaked_tool = true;
                 compact_tool_messages(&mut messages);
                 compact_tool_messages(history);
-                messages.push(json!({"role":"system","content":"Your last response contained raw <tool_call> tags in text instead of invoking tools via the function calling API. Do not output raw XML tags or <tool_call> in message content; invoke tools using the structured tool-calling API."}));
+                let recovery_content = format!(
+                    "Your last response contained raw <tool_call> tags in text instead of invoking tools via the function calling API. Do not output raw XML tags or <tool_call> in message content; invoke tools using the structured tool-calling API. {}",
+                    persona::format_persona_prompt(&load_user_config()?.persona).1
+                );
+                messages.push(json!({"role":"system","content": recovery_content}));
                 emit_status(
                     options,
                     "retrying",
