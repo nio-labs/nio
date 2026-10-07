@@ -9859,18 +9859,19 @@ pub(crate) fn select_menu_option_b(
                 let left_str = format!(" {pointer} {check} {}. ", display_idx + 1);
                 let left_len = terminal_text_width(&left_str);
 
-                let desc_len = terminal_text_width(desc);
-                // Reserve space for left_str and desc. Allow name to take the rest.
-                let max_name_len = inner_width.saturating_sub(left_len + desc_len + 1);
-
-                // Truncate name if it exceeds available space
-                let clipped_name = clip_terminal_text(name, max_name_len);
+                let clipped_name = clip_terminal_text(name, name_width);
                 let name_len = terminal_text_width(&clipped_name);
 
-                // Calculate padding to push desc to the right
-                let pad_len = inner_width.saturating_sub(left_len + name_len + desc_len);
+                let name_pad = " ".repeat(name_width.saturating_sub(name_len));
+                let max_desc_len = inner_width.saturating_sub(left_len + name_width + 1);
+                let clipped_desc = clip_terminal_text(desc, max_desc_len);
 
-                format!("{left_str}{clipped_name}{}{desc}", " ".repeat(pad_len))
+                // If description is present, pad by 1 space, else just name
+                if clipped_desc.is_empty() {
+                    format!("{left_str}{clipped_name}")
+                } else {
+                    format!("{left_str}{clipped_name}{name_pad} {clipped_desc}")
+                }
             })
             .collect::<Vec<_>>();
 
