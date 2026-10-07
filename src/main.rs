@@ -7178,7 +7178,7 @@ fn recent_session_lines(history: &[Value], width: usize, row_budget: usize) -> V
             .replace("\r\n", "\n")
             .replace('\r', "\n");
         let (prefix, text) = match role {
-            Some("user") => ("\x1b[1;36m🤖 nio>\x1b[0m ", content),
+            Some("user") => ("\n\x1b[1;36m🤖 nio>\x1b[0m ", format!("\x1b[36m{content}\x1b[0m")),
             Some("assistant") => {
                 let mut formatter = MarkdownFormatter::new(true);
                 formatter.wrap_width = width.saturating_sub(1).max(RESPONSE_INDENT_WIDTH + 2);
@@ -7883,14 +7883,14 @@ fn read_interactive_line_raw(
                     .unwrap_or(80);
                 let (mut rendered_input, _, _) = render_input_text(prompt, &input, width);
                 let colored_prompt = if prompt == "🤖 nio> " {
-                    "\x1b[1;36m🤖 nio>\x1b[0m "
+                    "\n\x1b[1;36m🤖 nio>\x1b[0m \x1b[36m"
                 } else if prompt == "$ " {
-                    "\x1b[1;36m$ \x1b[0m"
+                    "\n\x1b[1;36m$ \x1b[0m \x1b[36m"
                 } else {
                     prompt
                 };
                 rendered_input = rendered_input.replacen(prompt, colored_prompt, 1);
-                write!(stdout, "{rendered_input}\r\n")
+                write!(stdout, "{rendered_input}\x1b[0m\r\n")
                     .map_err(|e| format!("writing prompt: {e}"))?;
                 stdout.flush().map_err(|e| format!("writing prompt: {e}"))?;
                 return Ok(PromptInput::Line(pasted_blocks.expand(&input)));
