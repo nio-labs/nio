@@ -94,8 +94,14 @@ pub fn manage() -> Result<(), String> {
             }
             KeyCode::Enter | KeyCode::Char('e') if !messages.is_empty() => {
                 frame.clear(&mut stdout)?;
-                let edited =
-                    read_interactive_line_raw("🤖 edit> ", &[], &[], None, &messages[selected]);
+                let edited = read_interactive_line_raw(
+                    "🤖 edit> ",
+                    &[],
+                    &[],
+                    None,
+                    &messages[selected],
+                    None,
+                );
                 if let Ok(PromptInput::Line(text)) = edited {
                     if let Err(error) = replace(selected, text) {
                         write!(stdout, "{error}\r\n").map_err(|e| e.to_string())?;
@@ -144,6 +150,7 @@ struct Live {
     palette_selected: usize,
     status: String,
     status_started: Instant,
+    response_started: bool,
     last_frame: Instant,
     pending: String,
     formatter: Option<MarkdownFormatter>,
@@ -215,6 +222,9 @@ impl Live {
         let formatter = self.formatter.as_mut().unwrap();
         let started = formatter.output_started;
         let formatted = formatter.push(text);
+        if !strip_terminal_ansi(&formatted).trim().is_empty() {
+            self.response_started = true;
+        }
         if !started && !formatted.is_empty() {
             if self.needs_prefix_newline {
                 self.pending.push_str("\r\n");
@@ -240,17 +250,20 @@ impl Live {
         let width = width as usize;
         let messages = snapshot();
         self.selected = self.selected.min(messages.len().saturating_sub(1));
-        let frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-        let frame =
-            frames[(self.status_started.elapsed().as_millis() / 80) as usize % frames.len()];
-        let mut lines = vec![clip_terminal_text(
-            &format!(
-                "\x1b[36m{frame}\x1b[0m {} \x1b[2m({}s)\x1b[0m",
-                self.status,
-                self.status_started.elapsed().as_secs()
-            ),
-            width.saturating_sub(1),
-        )];
+        let mut lines = Vec::new();
+        if !self.response_started {
+            let frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+            let frame =
+                frames[(self.status_started.elapsed().as_millis() / 80) as usize % frames.len()];
+            lines.push(clip_terminal_text(
+                &format!(
+                    "\x1b[36m{frame}\x1b[0m {} \x1b[2m({}s)\x1b[0m",
+                    self.status,
+                    self.status_started.elapsed().as_secs()
+                ),
+                width.saturating_sub(1),
+            ));
+        }
         self.last_frame = Instant::now();
         if !self.pending.is_empty() {
             lines.push(clip_terminal_text(&self.pending, width.saturating_sub(1)));
@@ -688,6 +701,7 @@ pub async fn run(
         palette_selected: 0,
         status: "Thinking".into(),
         status_started: Instant::now(),
+        response_started: false,
         last_frame: Instant::now(),
         pending: String::new(),
         formatter: None,
@@ -806,6 +820,7 @@ pub async fn run(
                         Ok(suggestions)
                     });
                     live.status = "Finished · close Queue to continue".into();
+                    live.response_started = false;
                 }
                 _ => {}
             }

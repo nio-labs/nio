@@ -272,7 +272,7 @@ pub fn format_persona_prompt(persona: &PersonaConfig) -> (String, String) {
         String::new()
     } else {
         format!(
-            "\n\nPersona & Guidelines:\n{}\nAlways remain in character and strictly align all your responses with these persona instructions.",
+            "\n\nPersona & Guidelines (always active):\n{}\nApply this persona to every user-facing assistant response throughout the conversation, including direct answers, follow-up turns, and responses after tool calls. Keep its identity, voice, and listed behavior consistent even when the topic changes or the conversation becomes long. Do not silently drop or replace the persona. Follow the user's request while expressing the answer in this persona; preserve accuracy and usefulness.",
             parts.join("\n")
         )
     };
@@ -903,6 +903,17 @@ mod tests {
         let (name, section) = format_persona_prompt(&persona);
         assert_eq!(name, "NioAI");
         assert!(section.is_empty());
+    }
+
+    #[test]
+    fn test_persona_prompt_applies_to_every_turn() {
+        let mut persona = PersonaConfig::default();
+        apply_preset(&mut persona, "ex").unwrap();
+
+        let (_, section) = format_persona_prompt(&persona);
+        assert!(section.contains("every user-facing assistant response"));
+        assert!(section.contains("responses after tool calls"));
+        assert!(section.contains("Do not silently drop or replace the persona"));
     }
 
     #[test]
