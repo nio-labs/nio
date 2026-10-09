@@ -14,7 +14,7 @@ pub const STEP_LIMIT: usize = 128;
 // A request is measured as serialized JSON bytes, which is substantially
 // smaller than the token limit advertised by current hosted models. Keep a
 // generous local ceiling while leaving room for the provider's output budget.
-pub const CONTEXT_LIMIT: usize = 512 * 1024;
+pub const CONTEXT_LIMIT: usize = 2 * 1024 * 1024;
 static TEMP_ID: AtomicUsize = AtomicUsize::new(0);
 
 pub fn read_bounded(path: &Path, limit: usize) -> Result<Vec<u8>, String> {

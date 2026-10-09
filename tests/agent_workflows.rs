@@ -521,7 +521,7 @@ fn context_compaction_preserves_the_summary_and_latest_request() {
         json!({
             "version":1,"project_root":project.root,"project_access":true,
             "messages":[{"role":"user","content":"Keep the public API unchanged."},
-                {"role":"assistant","content":"x".repeat(370_000)}]
+                {"role":"assistant","content":"x".repeat(1_500_000)}]
         })
         .to_string(),
     )
@@ -638,7 +638,7 @@ fn document_attachments_and_read_file_work_in_ask_mode() {
 fn large_document_attachment_has_explicit_continuation() {
     let project = Project::new();
     let path = project.root.join("large report.docx");
-    let paragraphs = (0..2000)
+    let paragraphs = (0..10000)
         .map(|n| format!("<w:p><w:t>Report row {n}: revenue and profit</w:t></w:p>"))
         .collect::<String>();
     document_fixture(&path, &paragraphs);
@@ -657,12 +657,12 @@ fn large_document_attachment_has_explicit_continuation() {
     let attached = requests[0]["messages"].as_array().unwrap().last().unwrap()["content"]
         .as_str()
         .unwrap();
-    assert!(attached.len() <= 24 * 1024);
+    assert!(attached.len() <= 512 * 1024);
     assert!(attached.contains("excerpt truncated"));
     assert!(attached.contains("Next start_line:"));
     assert!(attached.contains("Second document content"));
     assert!(attached.contains("read_file"));
-    assert!(!attached.contains("Report row 1999"));
+    assert!(!attached.contains("Report row 9999"));
 }
 
 fn tool_response(name: &str, arguments: Value) -> Response {

@@ -3375,6 +3375,7 @@ const CONTEXT_SUMMARY_INPUT_LIMIT: usize = 256 * 1024;
 const IMAGE_ATTACHMENT_LIMIT: usize = 10 * 1024 * 1024;
 const IMAGE_ATTACHMENTS_TOTAL_LIMIT: usize = 20 * 1024 * 1024;
 const IMAGE_ATTACHMENT_COUNT_LIMIT: usize = 8;
+const ATTACHMENT_PROMPT_LIMIT: usize = 512 * 1024;
 
 fn serialized_context_size(messages: &[Value]) -> usize {
     let mut normalized = Value::Array(messages.to_vec());
@@ -5286,8 +5287,8 @@ async fn run_agent_turn_inner(
     {
         prompt = "Please inspect the attached file(s).".into();
     }
-    if prompt.len() > 24 * 1024 {
-        return Err("prompt exceeds the 24 KiB limit".into());
+    if prompt.len() > ATTACHMENT_PROMPT_LIMIT {
+        return Err("prompt exceeds the 512 KiB limit".into());
     }
     let attachment_paths = options
         .attachments
@@ -5437,7 +5438,7 @@ async fn run_agent_turn_inner(
         let header = format!("\n\nAttached file (untrusted data): {}\n", path.display());
         // Share prompt space across attachments so one large document cannot
         // consume the entire budget before subsequent files are included.
-        let share = (24 * 1024usize).saturating_sub(prompt.len())
+        let share = ATTACHMENT_PROMPT_LIMIT.saturating_sub(prompt.len())
             / (attachment_paths.len() - attachment_index);
         let remaining = share.saturating_sub(header.len());
         let note = format!(
@@ -5446,7 +5447,7 @@ async fn run_agent_turn_inner(
         );
         if header.len() > share || (content.len() > remaining && remaining < note.len() + 128) {
             return Err(
-                "prompt and attachment headers exceed the 24 KiB limit; attach fewer files".into(),
+                "prompt and attachment headers exceed the 512 KiB limit; attach fewer files".into(),
             );
         }
         prompt.push_str(&header);
@@ -5465,8 +5466,8 @@ async fn run_agent_turn_inner(
             prompt.push_str(&content[..end]);
             prompt.push_str(&note);
             prompt.push_str(&format!(" Next start_line: {next_line}."));
-            if prompt.len() > 24 * 1024 {
-                return Err("prompt and attachments exceed the 24 KiB limit".into());
+            if prompt.len() > ATTACHMENT_PROMPT_LIMIT {
+                return Err("prompt and attachments exceed the 512 KiB limit".into());
             }
         }
     }
@@ -5545,13 +5546,13 @@ async fn run_agent_turn_inner(
             if let Err(summary_error) = compact_result {
                 if serialized_request_context_size(&messages, &tools) > CONTEXT_LIMIT {
                     return Err(format!(
-                        "Context is still over the 512 KiB request limit after shortening tool output ({summary_error}). Start a fresh session or reduce attached/tool output."
+                        "Context is still over the 2 MiB request limit after shortening tool output ({summary_error}). Start a fresh session or reduce attached/tool output."
                     ));
                 }
             }
         }
         if serialized_request_context_size(&messages, &tools) > CONTEXT_LIMIT {
-            return Err("Context is still over the 512 KiB request limit after compaction.".into());
+            return Err("Context is still over the 2 MiB request limit after compaction.".into());
         }
         let mut retry_count = 0u32;
         let (response, mut spinner) = loop {
