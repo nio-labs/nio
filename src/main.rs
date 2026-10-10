@@ -7606,7 +7606,7 @@ fn print_prompt_divider() -> Result<(), String> {
         .map_err(|error| format!("writing prompt divider: {error}"))
 }
 
-const COMMANDS: [(&str, &str); 22] = [
+const COMMANDS: [(&str, &str); 24] = [
     (
         ":approval",
         "Toggle automatic approval for writes and commands",
@@ -7623,9 +7623,14 @@ const COMMANDS: [(&str, &str); 22] = [
     (":mode", "Choose Ask, Plan, or Build mode"),
     (":path", "Show the current project directory"),
     (
+        ":persona",
+        "Configure assistant persona, name, and custom instructions",
+    ),
+    (
         ":plugins",
         "Manage optional file readers and PDF OCR languages",
     ),
+    (":provider", "Configure model providers"),
     (":queue", "List/edit/remove/pause/resume queued messages"),
     (":quit", "Exit Nio"),
     (":reasoning", "Set reasoning effort"),
@@ -11303,9 +11308,14 @@ const HELP_INTERACTIVE: &[(&str, &str)] = &[
     (":mode", "Choose Ask, Plan, or Build mode"),
     (":path", "Show the current project directory"),
     (
+        ":persona",
+        "Configure assistant persona, name, and custom instructions",
+    ),
+    (
         ":plugins",
         "Manage optional file readers and PDF OCR languages",
     ),
+    (":provider", "Add or update a provider"),
     (
         ":queue",
         "List/edit/remove/clear/pause/resume pending messages",
