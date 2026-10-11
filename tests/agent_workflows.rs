@@ -355,7 +355,7 @@ fn nioxs_provider_preserves_model_id_and_executes_client_tools() {
         &project.config,
         json!({
             "request_interval_seconds":0,
-            "providers":[{"id":"nioxs","name":"NioXS","base_url":provider.url}]
+            "providers":[{"id":"nioxs","name":"NioXS (PoC)","base_url":provider.url}]
         })
         .to_string(),
     )
@@ -376,13 +376,13 @@ fn nioxs_provider_preserves_model_id_and_executes_client_tools() {
 }
 
 #[test]
-fn nioxs_is_the_default_and_saved_or_explicit_models_take_precedence() {
+fn kilo_is_the_default_and_saved_or_explicit_models_take_precedence() {
     for (saved, explicit, expected) in [
-        (None, None, "nio-nano"),
-        (Some("nioxs::saved-model"), None, "saved-model"),
+        (None, None, "cohere/north-mini-code:free"),
+        (Some("kilo::saved-model"), None, "saved-model"),
         (
-            Some("nioxs::saved-model"),
-            Some("nioxs::explicit-model"),
+            Some("kilo::saved-model"),
+            Some("kilo::explicit-model"),
             "explicit-model",
         ),
     ] {
@@ -393,7 +393,7 @@ fn nioxs_is_the_default_and_saved_or_explicit_models_take_precedence() {
             json!({
                 "request_interval_seconds":0,
                 "default_model":saved,
-                "providers":[{"id":"nioxs","name":"NioXS","base_url":provider.url}]
+                "providers":[{"id":"kilo","name":"Kilo Gateway","base_url":provider.url}]
             })
             .to_string(),
         )

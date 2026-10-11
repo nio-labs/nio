@@ -46,9 +46,14 @@ use unicode_width::UnicodeWidthStr;
 const KILO_BASE_URL: &str = "https://api.kilo.ai/api/gateway";
 const OPENROUTER_BASE_URL: &str = "https://openrouter.ai/api/v1";
 const NIOXS_BASE_URL: &str = "http://127.0.0.1:7460/v1";
-const DEFAULT_MODEL_SELECTOR: &str = "nioxs::nio-nano";
+const DEFAULT_MODEL_SELECTOR: &str = "kilo::cohere/north-mini-code:free";
+const DEFAULT_MODEL_FALLBACKS: [&str; 3] = [
+    "kilo::cohere/north-mini-code:free",
+    "kilo::stepfun/step-5-preview-free",
+    "kilo::kilo-auto/free",
+];
 const PROVIDER_PRESETS: [(&str, &str, &str); 15] = [
-    ("nioxs", "NioXS", NIOXS_BASE_URL),
+    ("nioxs", "NioXS (PoC)", NIOXS_BASE_URL),
     ("openrouter", "OpenRouter", OPENROUTER_BASE_URL),
     (
         "vercel",
@@ -1046,7 +1051,7 @@ fn default_options(command: &str) -> Options {
         command: command.to_string(),
         prompt: Vec::new(),
         model: env::var("NIO_MODEL").ok(),
-        base_url: env::var("NIO_BASE_URL").unwrap_or_else(|_| NIOXS_BASE_URL.into()),
+        base_url: env::var("NIO_BASE_URL").unwrap_or_else(|_| KILO_BASE_URL.into()),
         api_key: env::var("NIO_API_KEY").ok(),
         json_output: false,
         auto_approve: false,
@@ -1210,7 +1215,7 @@ fn parse_args(args: Vec<String>) -> Result<Options, String> {
     let mut base_url_override = env::var("NIO_BASE_URL").ok();
     let mut base_url = base_url_override
         .clone()
-        .unwrap_or_else(|| NIOXS_BASE_URL.into());
+        .unwrap_or_else(|| KILO_BASE_URL.into());
     let mut api_key = env::var("NIO_API_KEY").ok();
     let mut json_output = false;
     let mut auto_approve = false;
@@ -4904,28 +4909,88 @@ async fn run_agent_turn(
     prompt: &str,
     history: &mut Vec<Value>,
 ) -> Result<Vec<String>, String> {
-    let mut interrupt = EscapeInterrupt::new();
-    let cancelled = interrupt.cancelled.clone();
-    let result = {
-        let work = async {
-            run_agent_turn_inner(options, model, prompt, history, &mut interrupt).await?;
-            if options.json_output || !load_user_config()?.follow_up_suggestions.unwrap_or(false) {
-                Ok(Vec::new())
-            } else {
-                Ok(generate_followup_suggestions(options, model, history).await)
+    let mut current_model = model.to_string();
+    let initial_history = history.clone();
+    loop {
+        let mut turn_history = initial_history.clone();
+        let mut interrupt = EscapeInterrupt::new();
+        let cancelled = interrupt.cancelled.clone();
+        let current_model_clone = current_model.clone();
+        let result = {
+            let work = async {
+                run_agent_turn_inner(
+                    options,
+                    &current_model_clone,
+                    prompt,
+                    &mut turn_history,
+                    &mut interrupt,
+                )
+                .await?;
+                if options.json_output
+                    || !load_user_config()?.follow_up_suggestions.unwrap_or(false)
+                {
+                    Ok(Vec::new())
+                } else {
+                    Ok(
+                        generate_followup_suggestions(options, &current_model_clone, &turn_history)
+                            .await,
+                    )
+                }
+            };
+            tokio::pin!(work);
+            tokio::select! {
+                result = &mut work => result,
+                _ = wait_for_interrupt(cancelled) => Err(TURN_INTERRUPTED.into()),
             }
         };
-        tokio::pin!(work);
-        tokio::select! {
-            result = &mut work => result,
-            _ = wait_for_interrupt(cancelled) => Err(TURN_INTERRUPTED.into()),
+        interrupt.pause();
+        match result {
+            Ok(suggestions) => {
+                *history = turn_history;
+                return Ok(suggestions);
+            }
+            Err(error) => {
+                complete_pending_tools(&mut turn_history);
+                *history = turn_history;
+                if error == TURN_INTERRUPTED {
+                    return Err(error);
+                }
+                if let Some(next_model) = next_default_fallback_model(&current_model) {
+                    emit_status(
+                        options,
+                        "retrying",
+                        &format!("{current_model} failed ({error}); falling back to {next_model}"),
+                    );
+                    current_model = next_model.to_string();
+                    continue;
+                }
+                return Err(error);
+            }
         }
-    };
-    interrupt.pause();
-    if result.is_err() {
-        complete_pending_tools(history);
     }
-    result
+}
+
+fn next_default_fallback_model(current_model: &str) -> Option<&'static str> {
+    let normalized = if current_model.contains("::") {
+        current_model
+    } else if current_model.starts_with("cohere/") {
+        "kilo::cohere/north-mini-code:free"
+    } else if current_model.starts_with("stepfun/") {
+        "kilo::stepfun/step-5-preview-free"
+    } else if current_model.starts_with("kilo-auto/") {
+        "kilo::kilo-auto/free"
+    } else {
+        current_model
+    };
+    if let Some(pos) = DEFAULT_MODEL_FALLBACKS
+        .iter()
+        .position(|&m| m == normalized)
+    {
+        if pos + 1 < DEFAULT_MODEL_FALLBACKS.len() {
+            return Some(DEFAULT_MODEL_FALLBACKS[pos + 1]);
+        }
+    }
+    None
 }
 
 fn complete_pending_tools(history: &mut Vec<Value>) {
@@ -6339,6 +6404,12 @@ fn build_http_client() -> Result<reqwest::Client, String> {
 
 fn configured_model_providers(config: &UserConfig) -> Vec<ProviderConfig> {
     let mut providers = vec![
+        ProviderConfig {
+            id: "kilo".into(),
+            name: "Kilo Gateway".into(),
+            base_url: KILO_BASE_URL.into(),
+            api_key: None,
+        },
         config
             .providers
             .iter()
@@ -6346,16 +6417,10 @@ fn configured_model_providers(config: &UserConfig) -> Vec<ProviderConfig> {
             .cloned()
             .unwrap_or_else(|| ProviderConfig {
                 id: "nioxs".into(),
-                name: "NioXS".into(),
+                name: "NioXS (PoC)".into(),
                 base_url: NIOXS_BASE_URL.into(),
                 api_key: None,
             }),
-        ProviderConfig {
-            id: "kilo".into(),
-            name: "Kilo Gateway".into(),
-            base_url: KILO_BASE_URL.into(),
-            api_key: None,
-        },
     ];
     providers.extend(
         config
@@ -6375,10 +6440,11 @@ mod default_provider_tests {
     fn nioxs_and_kilo_are_available_without_saved_setup() {
         let config = UserConfig::default();
         let providers = configured_model_providers(&config);
-        assert_eq!(providers[0].id, "nioxs");
-        assert_eq!(providers[0].base_url, NIOXS_BASE_URL);
-        assert_eq!(providers[1].id, "kilo");
-        assert_eq!(providers[1].base_url, KILO_BASE_URL);
+        assert_eq!(providers[0].id, "kilo");
+        assert_eq!(providers[0].base_url, KILO_BASE_URL);
+        assert_eq!(providers[1].id, "nioxs");
+        assert_eq!(providers[1].name, "NioXS (PoC)");
+        assert_eq!(providers[1].base_url, NIOXS_BASE_URL);
         assert!(is_provider_available(&config, "nioxs"));
         assert!(is_provider_available(&config, "kilo"));
     }
@@ -6388,7 +6454,7 @@ mod default_provider_tests {
         let config = UserConfig {
             providers: vec![ProviderConfig {
                 id: "nioxs".into(),
-                name: "NioXS".into(),
+                name: "NioXS (PoC)".into(),
                 base_url: "http://127.0.0.1:9999/v1".into(),
                 api_key: None,
             }],
@@ -6396,7 +6462,30 @@ mod default_provider_tests {
         };
         let providers = configured_model_providers(&config);
         assert_eq!(providers.len(), 2);
-        assert_eq!(providers[0].base_url, "http://127.0.0.1:9999/v1");
+        assert_eq!(providers[1].base_url, "http://127.0.0.1:9999/v1");
+    }
+
+    #[test]
+    fn default_model_fallback_chain_order() {
+        assert_eq!(
+            next_default_fallback_model("kilo::cohere/north-mini-code:free"),
+            Some("kilo::stepfun/step-5-preview-free")
+        );
+        assert_eq!(
+            next_default_fallback_model("kilo::stepfun/step-5-preview-free"),
+            Some("kilo::kilo-auto/free")
+        );
+        assert_eq!(next_default_fallback_model("kilo::kilo-auto/free"), None);
+        assert_eq!(next_default_fallback_model("nioxs::nio-nano"), None);
+        assert_eq!(next_default_fallback_model("mock"), None);
+    }
+
+    #[test]
+    fn model_priority_rank_ranks_mini_code_stepfun_and_auto_free_first() {
+        assert_eq!(model_priority_rank("cohere/north-mini-code:free"), 0);
+        assert_eq!(model_priority_rank("stepfun/step-5-preview-free"), 1);
+        assert_eq!(model_priority_rank("kilo-auto/free"), 2);
+        assert_eq!(model_priority_rank("other-model"), 3);
     }
 }
 
@@ -6434,8 +6523,11 @@ async fn fetch_model_choices(options: &Options) -> Result<Vec<ModelChoice>, Stri
         eprintln!("nio: skipped provider model catalog: {error}");
     }
     choices.sort_by(|a, b| {
-        b.free
-            .cmp(&a.free)
+        let rank_a = model_priority_rank(&a.id);
+        let rank_b = model_priority_rank(&b.id);
+        rank_a
+            .cmp(&rank_b)
+            .then_with(|| b.free.cmp(&a.free))
             .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
             .then_with(|| {
                 a.gateway_label
@@ -6444,6 +6536,18 @@ async fn fetch_model_choices(options: &Options) -> Result<Vec<ModelChoice>, Stri
             })
     });
     Ok(choices)
+}
+
+fn model_priority_rank(id: &str) -> usize {
+    if id == "cohere/north-mini-code:free" || id == "kilo::cohere/north-mini-code:free" {
+        0
+    } else if id == "stepfun/step-5-preview-free" || id == "kilo::stepfun/step-5-preview-free" {
+        1
+    } else if id == "kilo-auto/free" || id == "kilo::kilo-auto/free" {
+        2
+    } else {
+        3
+    }
 }
 
 async fn read_http_body(response: reqwest::Response, limit: usize) -> Result<Vec<u8>, String> {
@@ -11083,7 +11187,15 @@ fn resolve_model_provider(
         .iter()
         .find(|provider| provider.id == gateway);
     let base_url = match gateway {
-        "kilo" => KILO_BASE_URL.to_string(),
+        "kilo" => saved
+            .map(|provider| provider.base_url.clone())
+            .unwrap_or_else(|| {
+                if options.base_url != KILO_BASE_URL && options.base_url != NIOXS_BASE_URL {
+                    options.base_url.clone()
+                } else {
+                    KILO_BASE_URL.to_string()
+                }
+            }),
         "nioxs" => saved
             .map(|provider| provider.base_url.clone())
             .unwrap_or_else(|| NIOXS_BASE_URL.to_string()),
