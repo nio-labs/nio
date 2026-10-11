@@ -55,7 +55,7 @@ Start the interactive agent:
 nio
 ```
 
-On first launch, Nio automatically fetches available models, highlights free models, and saves your preference.
+Nio defaults to `nioxs::nio-nano` through the built-in NioXS endpoint at `http://127.0.0.1:7460/v1`. Start the separate NioXS and NioDB services before using it. Phase 2 Nano supports natural file-reading requests, project inspection, file/code search, and approved configured checks. Use `nio models` to browse providers and save another model; Kilo remains built in. Saved model choices and explicit overrides take precedence over the application default.
 
 Override the model for a one-shot query:
 
@@ -320,7 +320,9 @@ nio persona reset
 
 The interactive selector is accessible in the terminal with `nio persona`, inside interactive sessions via `:persona` (or `/persona`), and directly within the TUI `:settings` menu. Persona identities and instructions are strictly enforced in the system prompt and reflected in the session header.
 
-Preset providers include OpenRouter, Groq, Cerebras, Gemini, DeepSeek, Together AI, Fireworks, Mistral, SiliconFlow, Anthropic Claude, and OpenAI Codex.
+Preset providers include OpenRouter, Groq, Cerebras, Gemini, DeepSeek, Together AI, Fireworks, Mistral, SiliconFlow, Anthropic Claude, OpenAI Codex, and NioXS.
+
+NioXS is the default provider under development, with `nioxs::nio-nano` as the default model. Its built-in endpoint is `http://127.0.0.1:7460/v1`; use `:provider` to customize its endpoint or API key. Kilo remains available without provider setup; select a Kilo model through `:model` or pass `-m kilo::kilo-auto/free`. Phase 2 uses trained non-LLM intent classification for file reading, project inspection, filename/code search, and named test/build/lint checks under Nio's permissions. Try `now read readme.md`. Browser workflows and automatic handoff remain later phases.
 
 File tools stay inside the current directory. Auto-discovery skips generated folders, secret filenames, and `.gitignore` paths. Text reads and writes are capped at 512 KiB; supported document inputs may be up to 20 MiB, with at most 512 KiB of extracted text. Search reads at most 16 MiB and returns at most 50 entries. `.gitignore` parsing is bounded to 256 KiB.
 
@@ -426,6 +428,7 @@ The Rust integration tests run the real CLI against a local mock provider, cover
 ## Repository
 
 - Language: Rust
-- Default provider: Kilo
+- Default provider: NioXS (`nioxs::nio-nano`)
+- Built-in alternative provider: Kilo
 - Repository: https://github.com/nio-labs/nio
 - License: [MIT](LICENSE)

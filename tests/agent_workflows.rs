@@ -52,12 +52,16 @@ impl Project {
     }
 
     fn command_options(&self, provider: &Provider, mode: &str, auto: bool) -> Command {
+        let mut command = self.command_without_model(provider, mode, auto);
+        command.args(["-m", "mock"]);
+        command
+    }
+
+    fn command_without_model(&self, provider: &Provider, mode: &str, auto: bool) -> Command {
         let mut command = Command::new(env!("CARGO_BIN_EXE_nio"));
         command
             .args([
                 "run",
-                "-m",
-                "mock",
                 "--format",
                 "json",
                 "--mode",
@@ -332,6 +336,78 @@ fn empty_response_after_tools_retries_with_a_text_only_answer_request() {
                 .unwrap()
                 .contains("Useful project context")
     }));
+}
+
+#[test]
+fn nioxs_provider_preserves_model_id_and_executes_client_tools() {
+    let project = Project::new();
+    std::fs::write(
+        project.root.join("README.md"),
+        "# NioXS fixture\nActual project text",
+    )
+    .unwrap();
+    let call = event(
+        json!({"tool_calls":[{"index":0,"id":"nano-read","type":"function","function":{"name":"read_file","arguments":json!({"path":"README.md","line_count":40}).to_string()}}]}),
+        Some("tool_calls"),
+    );
+    let mut provider = Provider::new(vec![Response::Events(call), done()]);
+    std::fs::write(
+        &project.config,
+        json!({
+            "request_interval_seconds":0,
+            "providers":[{"id":"nioxs","name":"NioXS","base_url":provider.url}]
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let mut command = project.command_options(&provider, "ask", false);
+    command.args(["-m", "nioxs::nio-nano", "--", "read README.md"]);
+    assert_success(&finish(command.spawn().unwrap()));
+    provider.finish();
+    let requests = provider.requests.lock().unwrap();
+    assert!(requests.iter().all(|r| r["model"] == "nio-nano"));
+    assert!(requests[1]["messages"].as_array().unwrap().iter().any(|m| {
+        m["role"] == "tool"
+            && m["tool_call_id"] == "nano-read"
+            && m["content"]
+                .as_str()
+                .is_some_and(|s| s.contains("Actual project text"))
+    }));
+}
+
+#[test]
+fn nioxs_is_the_default_and_saved_or_explicit_models_take_precedence() {
+    for (saved, explicit, expected) in [
+        (None, None, "nio-nano"),
+        (Some("nioxs::saved-model"), None, "saved-model"),
+        (
+            Some("nioxs::saved-model"),
+            Some("nioxs::explicit-model"),
+            "explicit-model",
+        ),
+    ] {
+        let project = Project::new();
+        let mut provider = Provider::new(vec![done()]);
+        std::fs::write(
+            &project.config,
+            json!({
+                "request_interval_seconds":0,
+                "default_model":saved,
+                "providers":[{"id":"nioxs","name":"NioXS","base_url":provider.url}]
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let mut command = project.command_without_model(&provider, "ask", false);
+        if let Some(model) = explicit {
+            command.args(["-m", model]);
+        }
+        command.args(["--", "read README.md"]);
+        assert_success(&finish(command.spawn().unwrap()));
+        provider.finish();
+        let requests = provider.requests.lock().unwrap();
+        assert_eq!(requests[0]["model"], expected);
+    }
 }
 
 #[test]

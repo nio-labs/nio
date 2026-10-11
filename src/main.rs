@@ -45,7 +45,10 @@ use unicode_width::UnicodeWidthStr;
 
 const KILO_BASE_URL: &str = "https://api.kilo.ai/api/gateway";
 const OPENROUTER_BASE_URL: &str = "https://openrouter.ai/api/v1";
-const PROVIDER_PRESETS: [(&str, &str, &str); 14] = [
+const NIOXS_BASE_URL: &str = "http://127.0.0.1:7460/v1";
+const DEFAULT_MODEL_SELECTOR: &str = "nioxs::nio-nano";
+const PROVIDER_PRESETS: [(&str, &str, &str); 15] = [
+    ("nioxs", "NioXS", NIOXS_BASE_URL),
     ("openrouter", "OpenRouter", OPENROUTER_BASE_URL),
     (
         "vercel",
@@ -1043,7 +1046,7 @@ fn default_options(command: &str) -> Options {
         command: command.to_string(),
         prompt: Vec::new(),
         model: env::var("NIO_MODEL").ok(),
-        base_url: env::var("NIO_BASE_URL").unwrap_or_else(|_| KILO_BASE_URL.into()),
+        base_url: env::var("NIO_BASE_URL").unwrap_or_else(|_| NIOXS_BASE_URL.into()),
         api_key: env::var("NIO_API_KEY").ok(),
         json_output: false,
         auto_approve: false,
@@ -1207,7 +1210,7 @@ fn parse_args(args: Vec<String>) -> Result<Options, String> {
     let mut base_url_override = env::var("NIO_BASE_URL").ok();
     let mut base_url = base_url_override
         .clone()
-        .unwrap_or_else(|| KILO_BASE_URL.into());
+        .unwrap_or_else(|| NIOXS_BASE_URL.into());
     let mut api_key = env::var("NIO_API_KEY").ok();
     let mut json_output = false;
     let mut auto_approve = false;
@@ -6334,20 +6337,78 @@ fn build_http_client() -> Result<reqwest::Client, String> {
         .map_err(|error| format!("building HTTP client: {error}"))
 }
 
+fn configured_model_providers(config: &UserConfig) -> Vec<ProviderConfig> {
+    let mut providers = vec![
+        config
+            .providers
+            .iter()
+            .find(|provider| provider.id == "nioxs")
+            .cloned()
+            .unwrap_or_else(|| ProviderConfig {
+                id: "nioxs".into(),
+                name: "NioXS".into(),
+                base_url: NIOXS_BASE_URL.into(),
+                api_key: None,
+            }),
+        ProviderConfig {
+            id: "kilo".into(),
+            name: "Kilo Gateway".into(),
+            base_url: KILO_BASE_URL.into(),
+            api_key: None,
+        },
+    ];
+    providers.extend(
+        config
+            .providers
+            .iter()
+            .filter(|provider| !matches!(provider.id.as_str(), "nioxs" | "kilo"))
+            .cloned(),
+    );
+    providers
+}
+
+#[cfg(test)]
+mod default_provider_tests {
+    use super::*;
+
+    #[test]
+    fn nioxs_and_kilo_are_available_without_saved_setup() {
+        let config = UserConfig::default();
+        let providers = configured_model_providers(&config);
+        assert_eq!(providers[0].id, "nioxs");
+        assert_eq!(providers[0].base_url, NIOXS_BASE_URL);
+        assert_eq!(providers[1].id, "kilo");
+        assert_eq!(providers[1].base_url, KILO_BASE_URL);
+        assert!(is_provider_available(&config, "nioxs"));
+        assert!(is_provider_available(&config, "kilo"));
+    }
+
+    #[test]
+    fn saved_nioxs_endpoint_overrides_the_builtin_without_duplicates() {
+        let config = UserConfig {
+            providers: vec![ProviderConfig {
+                id: "nioxs".into(),
+                name: "NioXS".into(),
+                base_url: "http://127.0.0.1:9999/v1".into(),
+                api_key: None,
+            }],
+            ..UserConfig::default()
+        };
+        let providers = configured_model_providers(&config);
+        assert_eq!(providers.len(), 2);
+        assert_eq!(providers[0].base_url, "http://127.0.0.1:9999/v1");
+    }
+}
+
 async fn fetch_model_choices(options: &Options) -> Result<Vec<ModelChoice>, String> {
     let client = build_http_client()?;
     let mut choices = Vec::new();
     let mut errors = Vec::new();
-    let mut providers = vec![ProviderConfig {
-        id: "kilo".into(),
-        name: "Kilo Gateway".into(),
-        base_url: KILO_BASE_URL.into(),
-        api_key: model_api_key(options, "kilo"),
-    }];
     let config = load_user_config()?;
-    if let Some(openrouter) = config.providers.iter().find(|p| p.id == "openrouter") {
-        providers.push(openrouter.clone());
-    } else if let Some(key) = model_api_key(options, "openrouter") {
+    let mut providers = configured_model_providers(&config);
+    if !providers.iter().any(|provider| provider.id == "openrouter")
+        && let Some(key) = model_api_key(options, "openrouter")
+    {
         providers.push(ProviderConfig {
             id: "openrouter".into(),
             name: "OpenRouter".into(),
@@ -6355,12 +6416,6 @@ async fn fetch_model_choices(options: &Options) -> Result<Vec<ModelChoice>, Stri
             api_key: Some(key),
         });
     }
-    providers.extend(
-        config
-            .providers
-            .into_iter()
-            .filter(|p| p.id != "openrouter" && p.id != "kilo"),
-    );
     for provider in providers {
         let key = model_api_key(options, &provider.id).or(provider.api_key.clone());
         match fetch_models(&client, &provider.base_url, key.as_deref()).await {
@@ -8872,12 +8927,7 @@ async fn chosen_model(options: &Options) -> Result<String, String> {
     } else if let Some(model) = read_saved_model()? {
         Ok(model)
     } else {
-        if options.json_output || !io::stdin().is_terminal() {
-            return Err("no model configured; pass --model or configure one interactively".into());
-        }
-        select_and_save_model(options)
-            .await?
-            .ok_or_else(|| "model selection cancelled".to_string())
+        Ok(DEFAULT_MODEL_SELECTOR.to_string())
     }
 }
 
@@ -8886,7 +8936,13 @@ async fn select_and_save_model(options: &Options) -> Result<Option<String>, Stri
     if choices.is_empty() {
         return Err("no models are available from the configured providers".into());
     }
-    let current_model = options.model.clone().or(read_saved_model()?);
+    let current_model = Some(
+        options
+            .model
+            .clone()
+            .or(read_saved_model()?)
+            .unwrap_or_else(|| DEFAULT_MODEL_SELECTOR.to_string()),
+    );
     let Some(index) = choose_model_index(&choices, current_model.as_deref())? else {
         return Ok(None);
     };
@@ -9273,7 +9329,7 @@ fn config_path() -> Result<PathBuf, String> {
 }
 
 fn is_provider_available(config: &UserConfig, gateway: &str) -> bool {
-    if gateway == "kilo" {
+    if matches!(gateway, "nioxs" | "kilo") {
         return true;
     }
     if config.providers.iter().any(|p| p.id == gateway) {
@@ -10013,13 +10069,14 @@ async fn check_provider_connectivity(
         .timeout(Duration::from_secs(10))
         .build()
         .map_err(|error| format!("creating proxy client: {}", error.without_url()))?;
-    let mut targets = vec![("Kilo Gateway".to_string(), KILO_BASE_URL.to_string())];
-    targets.extend(
-        configured_providers
-            .iter()
-            .filter(|provider| provider.id != "kilo")
-            .map(|provider| (provider.name.clone(), provider.base_url.clone())),
-    );
+    let config = UserConfig {
+        providers: configured_providers.to_vec(),
+        ..UserConfig::default()
+    };
+    let mut targets = configured_model_providers(&config)
+        .into_iter()
+        .map(|provider| (provider.name, provider.base_url))
+        .collect::<Vec<_>>();
     if configured_providers
         .iter()
         .all(|provider| provider.id != "openrouter")
@@ -11027,6 +11084,9 @@ fn resolve_model_provider(
         .find(|provider| provider.id == gateway);
     let base_url = match gateway {
         "kilo" => KILO_BASE_URL.to_string(),
+        "nioxs" => saved
+            .map(|provider| provider.base_url.clone())
+            .unwrap_or_else(|| NIOXS_BASE_URL.to_string()),
         "openrouter" => saved
             .map(|provider| provider.base_url.clone())
             .unwrap_or_else(|| OPENROUTER_BASE_URL.to_string()),
@@ -11555,7 +11615,10 @@ fn config_list() -> Result<(), CliError> {
         println!("  (not created yet; defaults are in use)");
     }
     let model = read_saved_model().map_err(CliError::from)?;
-    println!("  model: {}", model.as_deref().unwrap_or("(not set)"));
+    println!(
+        "  model: {}",
+        model.as_deref().unwrap_or(DEFAULT_MODEL_SELECTOR)
+    );
     println!("  mode: {}", configured_agent_mode(&config));
     println!(
         "  reasoning: {}",
@@ -11595,7 +11658,7 @@ fn config_get(key: &str) -> Result<(), CliError> {
     match key {
         "model" => {
             let model = read_saved_model().map_err(CliError::from)?;
-            println!("{}", model.as_deref().unwrap_or(""));
+            println!("{}", model.as_deref().unwrap_or(DEFAULT_MODEL_SELECTOR));
         }
         "mode" => println!("{}", configured_agent_mode(&config)),
         "reasoning" => println!(
@@ -11918,8 +11981,8 @@ async fn doctor_command(options: &Options) -> Result<(), CliError> {
         }
         None => checks.push((
             "model".into(),
-            "warn",
-            "no default model saved; run `nio models`".into(),
+            "pass",
+            format!("default model {DEFAULT_MODEL_SELECTOR}"),
         )),
     }
 
@@ -11968,14 +12031,10 @@ async fn doctor_command(options: &Options) -> Result<(), CliError> {
     match build_doctor_client(proxy.as_ref().ok().and_then(|option| option.as_deref())) {
         Err(error) => checks.push(("connectivity".into(), "fail", error)),
         Ok(client) => {
-            let mut targets = vec![("Kilo Gateway".to_string(), KILO_BASE_URL.to_string())];
-            targets.extend(
-                config
-                    .providers
-                    .iter()
-                    .filter(|provider| provider.id != "kilo")
-                    .map(|provider| (provider.name.clone(), provider.base_url.clone())),
-            );
+            let mut targets = configured_model_providers(&config)
+                .into_iter()
+                .map(|provider| (provider.name, provider.base_url))
+                .collect::<Vec<_>>();
             if config
                 .providers
                 .iter()
