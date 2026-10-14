@@ -151,12 +151,34 @@ struct Live {
     status: String,
     status_started: Instant,
     response_started: bool,
+    thinking: bool,
     last_frame: Instant,
     pending: String,
     formatter: Option<MarkdownFormatter>,
     screen: InputRenderState,
     approval: Option<ApprovalPrompt>,
     needs_prefix_newline: bool,
+}
+
+pub(crate) fn is_stage_banner(text: &str) -> bool {
+    let trimmed = text.trim();
+    let stripped = trimmed.strip_prefix("↪ ").unwrap_or(trimmed);
+    let stripped = stripped.trim_start_matches(|c: char| !c.is_alphanumeric());
+    stripped.starts_with("NioFlow")
+        || stripped.starts_with("NioEcho")
+        || stripped.starts_with("NioThinker")
+        || stripped.starts_with("NioSage")
+        || stripped.starts_with("NioQuill")
+        || stripped.starts_with("NioScout")
+        || stripped.starts_with("NioAtom")
+        || stripped.starts_with("NioNeon")
+        || stripped.starts_with("NioHelm")
+        || stripped.starts_with("NioNova")
+        || stripped.starts_with("NioNano")
+        || trimmed.starts_with("🔀 profile:")
+        || trimmed.starts_with("↪ fallback:")
+        || trimmed == "↪ Using Kilo Auto Free"
+        || trimmed == "↪ Helm skipped (--no-helm)"
 }
 
 pub(crate) fn fix_trailing_colon(text: &str) -> String {
@@ -222,8 +244,17 @@ impl Live {
         let formatter = self.formatter.as_mut().unwrap();
         let started = formatter.output_started;
         let formatted = formatter.push(text);
-        if !strip_terminal_ansi(&formatted).trim().is_empty() {
-            self.response_started = true;
+        let clean = strip_terminal_ansi(&formatted);
+        let trimmed = clean.trim();
+        if !trimmed.is_empty() {
+            if is_stage_banner(trimmed) {
+                self.thinking = true;
+                self.status = "Thinking".into();
+                self.status_started = Instant::now();
+            } else {
+                self.response_started = true;
+                self.thinking = false;
+            }
         }
         if !started && !formatted.is_empty() {
             if self.needs_prefix_newline {
@@ -251,7 +282,7 @@ impl Live {
         let messages = snapshot();
         self.selected = self.selected.min(messages.len().saturating_sub(1));
         let mut lines = Vec::new();
-        if !self.response_started {
+        if !self.response_started || self.thinking {
             let frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
             let frame =
                 frames[(self.status_started.elapsed().as_millis() / 80) as usize % frames.len()];
@@ -702,6 +733,7 @@ pub async fn run(
         status: "Thinking".into(),
         status_started: Instant::now(),
         response_started: false,
+        thinking: true,
         last_frame: Instant::now(),
         pending: String::new(),
         formatter: None,
@@ -731,9 +763,14 @@ pub async fn run(
                         live.status = status;
                         live.status_started = Instant::now();
                     }
+                    live.thinking = true;
                 }
                 Some("status") => {
-                    live.status = event["message"].as_str().unwrap_or("Working").to_string();
+                    let message = event["message"].as_str().unwrap_or("Working").to_string();
+                    if message.to_ascii_lowercase().contains("thinking") {
+                        live.thinking = true;
+                    }
+                    live.status = message;
                 }
                 Some("tool_use") => {
                     let part = &event["part"];

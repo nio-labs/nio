@@ -285,10 +285,26 @@ fn is_provider_unreachable_error(error: &str) -> bool {
         || lower.contains("no route to host")
 }
 
+#[derive(Deserialize, Default)]
+struct StreamStatus {
+    #[serde(default)]
+    phase: Option<String>,
+    #[serde(default)]
+    message: Option<String>,
+}
+
+#[derive(Deserialize, Default)]
+struct StreamNioxs {
+    #[serde(default)]
+    status: Option<StreamStatus>,
+}
+
 #[derive(Deserialize)]
 struct StreamChunk {
     #[serde(default)]
     choices: Vec<StreamChoice>,
+    #[serde(default)]
+    nioxs: Option<StreamNioxs>,
 }
 
 #[derive(Deserialize)]
@@ -305,6 +321,8 @@ struct StreamChoice {
 struct StreamDelta {
     #[serde(default)]
     content: Option<String>,
+    #[serde(default)]
+    reasoning_content: Option<String>,
     #[serde(default)]
     tool_calls: Vec<StreamToolCall>,
 }
@@ -356,6 +374,36 @@ fn pause_active_spinner() {
             eprint!("\r\x1b[2K");
             let _ = io::stderr().flush();
         }
+    }
+}
+
+fn restart_active_spinner(options: &Options, message: &str) {
+    if options.json_output || !io::stderr().is_terminal() {
+        return;
+    }
+    if let Ok(mut active) = ACTIVE_SPINNER_ABORT.lock() {
+        if active.is_some() {
+            return;
+        }
+        let started = Instant::now();
+        let message = message.to_string();
+        let task = tokio::spawn(async move {
+            let frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+            let mut frame = 0;
+            let mut ticker = tokio::time::interval(std::time::Duration::from_millis(80));
+            loop {
+                ticker.tick().await;
+                eprint!(
+                    "\r\x1b[2K\x1b[36m{}\x1b[0m {} \x1b[2m({}s)\x1b[0m",
+                    frames[frame],
+                    message,
+                    started.elapsed().as_secs()
+                );
+                let _ = io::stderr().flush();
+                frame = (frame + 1) % frames.len();
+            }
+        });
+        *active = Some(task.abort_handle());
     }
 }
 
@@ -3647,9 +3695,22 @@ fn process_sse_line(
     }
     let chunk: StreamChunk =
         serde_json::from_str(data).map_err(|e| format!("invalid model stream event: {e}"))?;
+    if let Some(nioxs) = &chunk.nioxs {
+        if let Some(status) = &nioxs.status {
+            if status.phase.as_deref() == Some("thinking") {
+                let msg = status.message.as_deref().unwrap_or("Thinking…");
+                emit_status(options, "thinking", msg);
+                restart_active_spinner(options, msg);
+            }
+        }
+    }
     for choice in chunk.choices {
         if choice.index != 0 {
             continue;
+        }
+        if choice.delta.reasoning_content.is_some() {
+            emit_status(options, "thinking", "Thinking");
+            restart_active_spinner(options, "Thinking");
         }
         if let Some(reason) = choice.finish_reason {
             *finished = Some(reason);
@@ -3686,11 +3747,16 @@ fn process_sse_line(
                 let to_emit = &answer[*emitted_len..allowed_len];
                 let formatted = formatter.push(to_emit);
                 if !formatted.is_empty() {
-                    if !*response_started && !strip_terminal_ansi(&formatted).trim().is_empty() {
+                    let clean = strip_terminal_ansi(&formatted);
+                    let trimmed = clean.trim();
+                    if !*response_started && !trimmed.is_empty() {
                         emit_assistant_start(options)?;
                         *response_started = true;
                     }
                     emit_text(options, &formatted)?;
+                    if inline_queue::is_stage_banner(trimmed) {
+                        restart_active_spinner(options, "Thinking");
+                    }
                 }
                 *emitted_len = allowed_len;
             }
