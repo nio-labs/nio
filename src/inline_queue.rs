@@ -158,6 +158,8 @@ struct Live {
     screen: InputRenderState,
     approval: Option<ApprovalPrompt>,
     needs_prefix_newline: bool,
+    block_output_started: bool,
+    boundary: AnswerBoundary,
 }
 
 pub(crate) fn is_stage_banner(text: &str) -> bool {
@@ -196,6 +198,58 @@ pub(crate) fn fix_trailing_colon(text: &str) -> String {
     text.to_string()
 }
 
+// Hold unfinished status lines so chunk boundaries cannot turn banner tails
+// into answer text. Once the answer begins, pass its chunks through immediately.
+#[derive(Default)]
+struct AnswerBoundary {
+    pending: String,
+    saw_banner: bool,
+    answer_started: bool,
+}
+impl AnswerBoundary {
+    fn push(&mut self, text: &str, finish: bool) -> Vec<(String, bool)> {
+        if self.answer_started {
+            return vec![(text.to_string(), false)];
+        }
+        self.pending.push_str(text);
+        let mut chunks = Vec::new();
+        while let Some(end) = self.pending.find('\n') {
+            let line: String = self.pending.drain(..=end).collect();
+            let plain = strip_terminal_ansi(&line);
+            if is_stage_banner(plain.trim()) {
+                self.saw_banner = true;
+                chunks.push((line, false));
+            } else if plain.trim().is_empty() {
+                chunks.push((line, false));
+            } else {
+                self.answer_started = true;
+                chunks.push((line, self.saw_banner));
+                chunks.push((std::mem::take(&mut self.pending), false));
+                return chunks;
+            }
+        }
+        let plain = strip_terminal_ansi(&self.pending);
+        let trimmed = plain.trim();
+        let partial_banner = [
+            "🌊", "↪", "💬", "🧠", "📚", "✍", "🔎", "⚖", "🔧", "🔀", "nio",
+        ]
+        .iter()
+        .any(|prefix| trimmed.to_lowercase().starts_with(prefix));
+        if !trimmed.is_empty() && (finish || !partial_banner) {
+            if is_stage_banner(trimmed) {
+                self.saw_banner = true;
+            } else {
+                self.answer_started = true;
+            }
+            chunks.push((
+                std::mem::take(&mut self.pending),
+                self.answer_started && self.saw_banner,
+            ));
+        }
+        chunks
+    }
+}
+
 impl Live {
     fn commit(&mut self, text: &str) -> Result<(), String> {
         let mut stdout = io::stdout();
@@ -208,21 +262,56 @@ impl Live {
         .map_err(|e| e.to_string())?;
         stdout.flush().map_err(|e| e.to_string())
     }
-    fn flush_partial(&mut self, blank_line_after: bool) -> Result<(), String> {
-        if let Some(mut formatter) = self.formatter.take() {
-            let started = formatter.output_started;
-            let tail = formatter.finish();
-            if !started && !tail.is_empty() {
+    fn append_formatted(&mut self, text: &str, finish: bool) -> Result<(), String> {
+        for (text, new_answer) in self.boundary.push(text, finish) {
+            if text.is_empty() {
+                continue;
+            }
+            if new_answer && self.block_output_started {
+                let pending = std::mem::take(&mut self.pending);
+                let trimmed = pending.trim_end();
+                if trimmed.is_empty() {
+                    self.commit("\r\n")?;
+                } else {
+                    self.commit(&format!("{trimmed}\r\n\r\n"))?;
+                }
+                self.block_output_started = false;
+                self.needs_prefix_newline = false;
+            }
+            if !self.block_output_started {
                 if self.needs_prefix_newline {
                     self.pending.push_str("\r\n");
                     self.needs_prefix_newline = false;
                 }
                 self.pending.push_str(ASSISTANT_PREFIX);
+                self.block_output_started = true;
+            }
+            let plain = strip_terminal_ansi(&text);
+            if self.boundary.answer_started {
+                self.response_started = true;
+                self.thinking = false;
+            } else if plain.lines().any(is_stage_banner) {
+                self.thinking = true;
+                self.status = "Thinking".into();
+                self.status_started = Instant::now();
             }
             self.pending.push_str(
-                &String::from_utf8(indent_response_lines(&tail, "\r\n")).unwrap_or_default(),
+                &String::from_utf8(indent_response_lines(&text, "\r\n")).unwrap_or_default(),
             );
+            if let Some(end) = self.pending.rfind('\n') {
+                let complete: String = self.pending.drain(..=end).collect();
+                self.commit(&complete)?;
+            }
         }
+        Ok(())
+    }
+    fn flush_partial(&mut self, blank_line_after: bool) -> Result<(), String> {
+        let tail = self
+            .formatter
+            .take()
+            .map(|mut formatter| formatter.finish())
+            .unwrap_or_default();
+        self.append_formatted(&tail, true)?;
         if !self.pending.is_empty() {
             let pending = std::mem::take(&mut self.pending);
             let trimmed = pending.trim_end_matches(|c: char| c == '\r' || c == '\n' || c == ' ');
@@ -230,51 +319,19 @@ impl Live {
                 let fixed = fix_trailing_colon(trimmed);
                 let suffix = if blank_line_after { "\r\n\r\n" } else { "\r\n" };
                 self.commit(&format!("{fixed}{suffix}"))?;
-                self.needs_prefix_newline = true;
             }
         }
+        self.needs_prefix_newline = true;
+        self.block_output_started = false;
+        self.boundary = AnswerBoundary::default();
         Ok(())
     }
     fn stream(&mut self, text: &str) -> Result<(), String> {
-        if self.formatter.is_none() {
-            self.formatter = Some(MarkdownFormatter::new(true));
-        }
-        let formatter = self.formatter.as_mut().unwrap();
-        let started = formatter.output_started;
-        let formatted = formatter.push(text);
-        let clean = strip_terminal_ansi(&formatted);
-        let non_banner_lines: Vec<&str> = clean
-            .lines()
-            .map(str::trim)
-            .filter(|l| !l.is_empty() && !is_stage_banner(l))
-            .collect();
-        if !non_banner_lines.is_empty() {
-            self.response_started = true;
-            self.thinking = false;
-        } else if clean.lines().any(is_stage_banner) {
-            self.thinking = true;
-            self.status = "Thinking".into();
-            self.status_started = Instant::now();
-        }
-        if !started && !formatted.is_empty() {
-            if self.needs_prefix_newline {
-                self.pending.push_str("\r\n");
-                self.needs_prefix_newline = false;
-            }
-            self.pending.push_str(ASSISTANT_PREFIX);
-        }
-        self.pending.push_str(
-            &String::from_utf8(indent_response_lines(&formatted, "\r\n")).unwrap_or_default(),
-        );
-        let last_non_ws = self.pending.rfind(|c: char| !c.is_whitespace());
-        if let Some(last_pos) = last_non_ws {
-            if let Some(end) = self.pending[..last_pos].rfind('\n') {
-                let complete = self.pending[..=end].to_string();
-                self.pending.drain(..=end);
-                self.commit(&complete)?;
-            }
-        }
-        Ok(())
+        let formatted = self
+            .formatter
+            .get_or_insert_with(|| MarkdownFormatter::new(true))
+            .push(text);
+        self.append_formatted(&formatted, false)
     }
     fn draw(&mut self) -> Result<(), String> {
         let (width, height) = terminal::size().unwrap_or((80, 24));
@@ -282,6 +339,9 @@ impl Live {
         let messages = snapshot();
         self.selected = self.selected.min(messages.len().saturating_sub(1));
         let mut lines = Vec::new();
+        if !self.pending.trim().is_empty() {
+            lines.push(clip_terminal_text(&self.pending, width.saturating_sub(1)));
+        }
         if !self.response_started || self.thinking {
             let frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
             let frame =
@@ -296,9 +356,6 @@ impl Live {
             ));
         }
         self.last_frame = Instant::now();
-        if !self.pending.is_empty() {
-            lines.push(clip_terminal_text(&self.pending, width.saturating_sub(1)));
-        }
         if let Some(approval) = &self.approval {
             lines.clear();
             if approval.details_visible
@@ -740,6 +797,8 @@ pub async fn run(
         screen: InputRenderState::default(),
         approval: None,
         needs_prefix_newline: false,
+        block_output_started: false,
+        boundary: AnswerBoundary::default(),
     };
     write!(io::stdout(), "\r\n").map_err(|e| e.to_string())?;
     live.draw()?;
@@ -902,4 +961,49 @@ pub async fn run(
         println!("\n✓ Finished ({:.1}s)", elapsed.as_secs_f32());
     }
     complete.unwrap()
+}
+
+#[cfg(test)]
+mod response_boundary_tests {
+    use super::*;
+    #[test]
+    fn progress_and_answer_split_even_in_one_chunk() {
+        let mut boundary = AnswerBoundary::default();
+        let chunks = boundary.push("🌊 NioFlow · Planning\n↪ Helm skipped (--no-helm)\n↪ 💬 NioEcho · Answering\nHey there!", false);
+        assert_eq!(chunks.iter().filter(|(_, new)| *new).count(), 1);
+        assert!(
+            chunks
+                .iter()
+                .any(|(text, new)| *new && text == "Hey there!")
+        );
+        assert!(boundary.answer_started);
+    }
+    #[test]
+    fn split_banner_chunks_do_not_start_the_answer() {
+        let mut boundary = AnswerBoundary::default();
+        for part in [
+            "🌊 Nio",
+            "Flow · Plan",
+            "ning\n",
+            "↪ Helm skip",
+            "ped (--no-helm)\n",
+        ] {
+            assert!(boundary.push(part, false).iter().all(|(_, new)| !new));
+            assert!(!boundary.answer_started);
+        }
+        assert!(boundary.push("Hello", false).iter().any(|(_, new)| *new));
+        assert_eq!(
+            boundary.push(" again", false),
+            vec![(" again".into(), false)]
+        );
+    }
+    #[test]
+    fn ordinary_answers_do_not_get_a_second_label() {
+        let mut boundary = AnswerBoundary::default();
+        assert_eq!(boundary.push("Hello", false), vec![("Hello".into(), false)]);
+        let mut boundary = AnswerBoundary::default();
+        boundary.push("🌊 NioFlow · Planning", false);
+        assert!(!boundary.answer_started);
+        assert!(boundary.push("", true).iter().all(|(_, new)| !new));
+    }
 }

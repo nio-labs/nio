@@ -1155,7 +1155,7 @@ fn auto_install_nioxs() -> Option<PathBuf> {
     let asset = format!("nioxs-{os}-{arch}{ext}");
     let url = format!("https://github.com/nio-labs/nio-xs/releases/latest/download/{asset}");
 
-    println!("📦 Auto-installing NioXS companion gateway ({asset})...");
+    eprintln!("📦 Auto-installing NioXS companion gateway ({asset})...");
     if cfg!(windows) {
         let script = format!(
             "Invoke-WebRequest -Uri '{url}' -OutFile '{}'",
@@ -1185,7 +1185,7 @@ fn auto_install_nioxs() -> Option<PathBuf> {
     }
 
     if target_path.is_file() {
-        println!("✅ Installed NioXS to {}", target_path.display());
+        eprintln!("✅ Installed NioXS to {}", target_path.display());
         Some(target_path)
     } else {
         None
@@ -5616,7 +5616,7 @@ async fn request_followup_suggestions(
 ) -> Result<Vec<String>, String> {
     let (gateway, model_id) = split_model_selector(model)?;
     let (base_url, key) = resolve_model_provider(options, gateway, model_id)?;
-    if base_url.contains(":7460") || gateway == Some("nioxs") || model_id == "nio-atom" {
+    if base_url.contains(":7460") || base_url == NIOXS_BASE_URL {
         ensure_nioxs_gateway();
     }
     let persona_section = persona::format_persona_prompt(&load_user_config()?.persona).1;
@@ -5836,7 +5836,7 @@ async fn run_agent_turn_inner(
 ) -> Result<(), String> {
     let (gateway, model_id) = split_model_selector(model)?;
     let (base_url, key) = resolve_model_provider(options, gateway, model_id)?;
-    if base_url.contains(":7460") || gateway == Some("nioxs") || model_id == "nio-atom" {
+    if base_url.contains(":7460") || base_url == NIOXS_BASE_URL {
         ensure_nioxs_gateway();
     }
     let client = build_http_client()?;
@@ -7301,7 +7301,10 @@ async fn interactive(mut options: Options) -> Result<(), String> {
         .clone()
         .unwrap_or_else(generate_session_id);
     let mut model = chosen_model(&options).await?;
-    if model.starts_with("nioxs::") || model == "nio-atom" {
+    if (model.starts_with("nioxs::") || model == "nio-atom")
+        && let Ok((base_url, _)) = resolve_model_provider(&options, Some("nioxs"), &model)
+        && (base_url.contains(":7460") || base_url == NIOXS_BASE_URL)
+    {
         ensure_nioxs_gateway();
     }
     let root = session_root(&options)?;
