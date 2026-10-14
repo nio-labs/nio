@@ -258,6 +258,7 @@ fn error_code(message: &str) -> &'static str {
     }
 }
 
+#[allow(dead_code)]
 fn is_provider_unreachable_error(error: &str) -> bool {
     let cat = error_code(error);
     if cat == "provider_unavailable" || cat == "network" || cat == "timeout" {
@@ -298,6 +299,8 @@ struct StreamStatus {
 struct StreamNioxs {
     #[serde(default)]
     status: Option<StreamStatus>,
+    #[serde(default)]
+    flow: Option<Value>,
 }
 
 #[derive(Deserialize)]
@@ -4167,6 +4170,16 @@ async fn compact_context_if_needed(
     Ok(true)
 }
 
+fn flow_failure_reason(flow: &Value) -> Option<String> {
+    (flow["status"] == "failed").then(|| flow["error"].as_str()
+        .unwrap_or("NioFlow did not complete; completion is unverified").to_string())
+}
+
+fn legacy_unverified_flow_answer(answer: &str) -> bool {
+    answer.trim().starts_with("⚠️ The final stage returned no answer; completion is unverified.")
+        && answer.contains("NioFlow stopped without dispatching further tools.")
+}
+
 fn process_sse_line(
     line: &str,
     options: &Options,
@@ -4186,6 +4199,9 @@ fn process_sse_line(
     let chunk: StreamChunk =
         serde_json::from_str(data).map_err(|e| format!("invalid model stream event: {e}"))?;
     if let Some(nioxs) = &chunk.nioxs {
+        if let Some(reason) = nioxs.flow.as_ref().and_then(flow_failure_reason) {
+            return Err(reason);
+        }
         if let Some(status) = &nioxs.status {
             if status.phase.as_deref() == Some("thinking") {
                 let msg = status.message.as_deref().unwrap_or("Thinking…");
@@ -4289,6 +4305,9 @@ fn process_json_completion(
     response_started: &mut bool,
     formatter: &mut MarkdownFormatter,
 ) -> Result<(), String> {
+    if let Some(reason) = payload.pointer("/nioxs/flow").and_then(flow_failure_reason) {
+        return Err(reason);
+    }
     let Some(choice) = payload
         .get("choices")
         .and_then(Value::as_array)
@@ -6550,6 +6569,9 @@ async fn run_agent_turn_inner(
         }
         spinner.pause();
         if calls.is_empty() {
+            if legacy_unverified_flow_answer(&answer) {
+                return Err("The final stage returned no answer; completion is unverified".into());
+            }
             if answer.trim().is_empty() {
                 if !retried_empty_response {
                     retried_empty_response = true;
@@ -13655,5 +13677,29 @@ mod failed_request_retry_tests {
             append_turn_user_messages(&mut vec![], &mut vec![], &json!({}), &json!({}), true)
                 .is_err()
         );
+    }
+}
+
+#[cfg(test)]
+mod unverified_flow_retry_tests {
+    use super::*;
+    #[test]
+    fn explicit_failed_flow_metadata_is_not_a_successful_answer() {
+        assert_eq!(flow_failure_reason(&json!({"status":"failed","error":"No final answer"})),Some("No final answer".into()));
+        assert!(flow_failure_reason(&json!({"status":"completed"})).is_none());
+        assert!(flow_failure_reason(&json!({"helm_verdict":{"verdict":"conditional_go"}})).is_none());
+        let options=default_options("run");
+        let mut answer=String::new();let mut emitted=0;let mut tools=std::collections::BTreeMap::new();
+        let mut started=false;let mut formatter=MarkdownFormatter::new(false);let mut finished=None;
+        let event=format!("data: {}",json!({"choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"nioxs":{"flow":{"status":"failed","error":"No final answer","retryable":true}}}));
+        assert!(process_sse_line(&event,&options,&mut answer,&mut emitted,&mut tools,&mut started,&mut formatter,&mut finished).is_err());
+        assert!(process_json_completion(json!({"choices":[{"finish_reason":"stop","message":{"content":"warning"}}],"nioxs":{"flow":{"status":"failed","error":"No final answer"}}}),&options,&mut answer,&mut emitted,&mut tools,&mut started,&mut formatter).is_err());
+        assert!(!started);
+    }
+    #[test]
+    fn legacy_warning_is_detected_without_matching_normal_uncertainty() {
+        assert!(legacy_unverified_flow_answer("⚠️ The final stage returned no answer; completion is unverified. NioFlow stopped without dispatching further tools."));
+        assert!(!legacy_unverified_flow_answer("Completion is unverified; inspect the proposed change."));
+        assert!(!legacy_unverified_flow_answer("The final stage returned no answer is an error message."));
     }
 }
