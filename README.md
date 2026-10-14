@@ -108,12 +108,17 @@ curl -fsSL https://raw.githubusercontent.com/nio-labs/nio/main/install.sh | NIO_
 # Zero-install execution
 npx @nio-labs/nio-ai
 
-# Global npm installation
+# Global npm installation (installs both NioAI and bundled NioXS companion gateway)
 npm install -g @nio-labs/nio-ai
 nio
+
+# Launch bundled NioXS companion gateway directly
+nio xs
+# Or run NioXS via npx:
+npx @nio-labs/nio-xs
 ```
 
-The npm launcher caches verified binaries by package version and platform, verifies SHA-256 checksums before extraction, and checks binary authenticity before execution.
+The npm package bundles the **NioXS Companion Gateway** (`nio-xs` / `nioxs`). When installed globally, both `nio` and `nio-xs` commands are ready on your PATH. The launcher caches verified binaries by package version and platform, verifies SHA-256 checksums before extraction, and checks binary authenticity before execution.
 
 ### 3. Build from source (Rust)
 

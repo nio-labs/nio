@@ -1021,6 +1021,7 @@ async fn run() -> Result<(), CliError> {
                 "config" => config_command(&options),
                 "doctor" => doctor_command(&options).await,
                 "completions" => completions_command(&options),
+                "xs" | "nioxs" => run_nioxs_gateway(&options),
                 command => Err(CliError::usage(format!(
                     "unknown command '{command}'. Run 'nio --help'."
                 ))),
@@ -1094,6 +1095,77 @@ fn confirm_project_trust(options: &Options) -> Result<bool, String> {
     }
 }
 
+fn run_nioxs_gateway(options: &Options) -> Result<(), CliError> {
+    let binary_name = if cfg!(windows) { "nioxs.exe" } else { "nioxs" };
+
+    // 1. Check adjacent to current exe
+    let adjacent = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.join(binary_name)))
+        .filter(|p| p.is_file());
+
+    // 2. Check ~/.nioxs/bin/nioxs
+    let user_home = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from);
+    let cached = user_home
+        .as_ref()
+        .map(|h| h.join(".nioxs").join("bin").join(binary_name))
+        .filter(|p| p.is_file());
+
+    // 3. Check ~/.local/bin/nioxs
+    let local_bin = user_home
+        .as_ref()
+        .map(|h| h.join(".local").join("bin").join(binary_name))
+        .filter(|p| p.is_file());
+
+    // 4. Check PATH
+    let path_bin = std::env::var_os("PATH").and_then(|paths| {
+        std::env::split_paths(&paths)
+            .map(|p| p.join(binary_name))
+            .find(|p| p.is_file())
+    });
+
+    let found_binary = adjacent.or(cached).or(local_bin).or(path_bin);
+
+    if let Some(bin) = found_binary {
+        let mut cmd = std::process::Command::new(bin);
+        cmd.args(&options.prompt);
+        let status = cmd
+            .status()
+            .map_err(|e| CliError::runtime(format!("failed to launch nioxs: {e}")))?;
+        if !status.success() {
+            std::process::exit(status.code().unwrap_or(1));
+        }
+        return Ok(());
+    }
+
+    // 5. Fallback: launch via npx @nio-labs/nio-xs
+    let npx = if cfg!(windows) { "npx.cmd" } else { "npx" };
+    let npx_exists = std::env::var_os("PATH").is_some_and(|paths| {
+        std::env::split_paths(&paths)
+            .map(|p| p.join(npx))
+            .any(|p| p.is_file())
+    });
+
+    if npx_exists {
+        println!("🚀 Launching NioXS companion gateway via npx...");
+        let mut cmd = std::process::Command::new(npx);
+        cmd.arg("@nio-labs/nio-xs").args(&options.prompt);
+        let status = cmd
+            .status()
+            .map_err(|e| CliError::runtime(format!("failed to run npx @nio-labs/nio-xs: {e}")))?;
+        if !status.success() {
+            std::process::exit(status.code().unwrap_or(1));
+        }
+        return Ok(());
+    }
+
+    Err(CliError::runtime(
+        "NioXS binary not found. Install or run it via: npx @nio-labs/nio-xs, or npm i -g @nio-labs/nio-ai",
+    ))
+}
+
 const SUBCOMMANDS: &[&str] = &[
     "run",
     "models",
@@ -1111,6 +1183,8 @@ const SUBCOMMANDS: &[&str] = &[
     "version",
     "bridge",
     "assemble",
+    "xs",
+    "nioxs",
 ];
 
 fn default_options(command: &str) -> Options {
@@ -1225,6 +1299,7 @@ fn parse_args(args: Vec<String>) -> Result<Options, String> {
         Some("completions") => "completions".to_string(),
         Some("bridge") => "bridge".to_string(),
         Some("assemble") => "assemble".to_string(),
+        Some("xs") | Some("nioxs") | Some("--xs") | Some("--nioxs") => "nioxs".to_string(),
         Some("--plugins") => {
             keep_first = true;
             "plugins".to_string()
@@ -1276,6 +1351,12 @@ fn parse_args(args: Vec<String>) -> Result<Options, String> {
     } else {
         args
     };
+
+    if command == "nioxs" {
+        let mut options = default_options("nioxs");
+        options.prompt.extend(args);
+        return Ok(options);
+    }
 
     let mut prompt = Vec::new();
     let mut model = env::var("NIO_MODEL").ok();
@@ -11771,6 +11852,10 @@ const HELP_USAGE: &[(&str, &str)] = &[
     (
         "  nio assemble [OPTIONS]",
         "Autonomous multi-agent swarm conductor (Planner, Coder, Tester)",
+    ),
+    (
+        "  nio xs [OPTIONS] / nio nioxs",
+        "Launch the bundled NioXS companion gateway",
     ),
     (
         "  nio sessions [list|show <ID>|delete <ID>]",

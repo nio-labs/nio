@@ -97,6 +97,18 @@ try {
     Copy-Item -LiteralPath $SourceExe -Destination $DestExe -Force
     Write-Host "==> Installed nio.exe to $DestExe" -ForegroundColor Green
 
+    # Bundle NioXS companion gateway
+    Write-Host "==> Bundling NioXS companion gateway..." -ForegroundColor Cyan
+    $NioXsArch = if ($Arch -eq "X64") { "amd64" } else { "arm64" }
+    $NioXsUrl = "https://github.com/nio-labs/nio-xs/releases/latest/download/nioxs-windows-$NioXsArch.exe"
+    $DestNioXs = Join-Path $InstallDir "nioxs.exe"
+    try {
+        Invoke-WebRequest -Uri $NioXsUrl -OutFile $DestNioXs -TimeoutSec 120
+        Write-Host "==> Installed nioxs.exe to $DestNioXs" -ForegroundColor Green
+    } catch {
+        Write-Host "Note: NioXS can be run anytime via 'npx @nio-labs/nio-xs' or 'nio xs'" -ForegroundColor Yellow
+    }
+
     # 5. Path check
     $UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
     if ($UserPath -notlike "*$InstallDir*") {

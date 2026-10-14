@@ -233,3 +233,20 @@ function Expand-Archive {
     assert.deepEqual(fs.readdirSync(temporaryDownloads), []);
   } finally { cleanup(root); }
 });
+
+test('NioXS is bundled in package.json bin and dependencies', () => {
+  const pkg = require('../package.json');
+  assert.equal(pkg.bin['nio-xs'], 'bin/nioxs.js');
+  assert.equal(pkg.bin['nioxs'], 'bin/nioxs.js');
+  assert.ok(pkg.dependencies['@nio-labs/nio-xs']);
+});
+
+test('nioxs runner exports platform detection and download functions', () => {
+  const nioxs = require('../bin/nioxs.js');
+  assert.equal(typeof nioxs.getPlatformInfo, 'function');
+  assert.equal(typeof nioxs.findOrDownloadBinary, 'function');
+  const info = nioxs.getPlatformInfo();
+  assert.ok(['linux', 'darwin', 'windows', 'termux'].includes(info.osType));
+  assert.ok(['amd64', 'arm64', 'x64', 'x86_64'].includes(info.arch) || info.arch.length > 0);
+});
+

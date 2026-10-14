@@ -156,7 +156,34 @@ fi
 
 echo "✅ Installed nio to $INSTALL_DIR/nio"
 
-# 6. Verify installation & PATH check
+# 6. Bundle NioXS companion gateway
+echo "📦 Bundling NioXS companion gateway..."
+NIOXS_OS="linux"
+if [ "$PLATFORM" = "apple-darwin" ]; then
+    NIOXS_OS="darwin"
+elif [ "$PLATFORM" = "linux-android" ]; then
+    NIOXS_OS="termux"
+fi
+NIOXS_ARCH="amd64"
+if [ "$TARGET_ARCH" = "aarch64" ]; then
+    NIOXS_ARCH="arm64"
+fi
+NIOXS_URL="https://github.com/nio-labs/nio-xs/releases/latest/download/nioxs-${NIOXS_OS}-${NIOXS_ARCH}"
+if [ -z "${NIO_NO_NIOXS:-}" ] && command -v curl >/dev/null 2>&1; then
+    if curl --connect-timeout 10 --max-time 120 -fsSL "$NIOXS_URL" -o "$TMP_DIR/nioxs" 2>/dev/null; then
+        if [ -s "$TMP_DIR/nioxs" ]; then
+            chmod +x "$TMP_DIR/nioxs"
+            cp -f "$TMP_DIR/nioxs" "$INSTALL_DIR/nioxs"
+            if [ "$PLATFORM" = "apple-darwin" ]; then
+                xattr -cr "$INSTALL_DIR/nioxs" 2>/dev/null || true
+                codesign --force --deep -s - "$INSTALL_DIR/nioxs" 2>/dev/null || true
+            fi
+            echo "✅ Installed nioxs to $INSTALL_DIR/nioxs"
+        fi
+    fi
+fi
+
+# 7. Verify installation & PATH check
 if ! echo ":$PATH:" | grep -q ":$INSTALL_DIR:"; then
     echo ""
     echo "⚠️  $INSTALL_DIR is not currently in your PATH."

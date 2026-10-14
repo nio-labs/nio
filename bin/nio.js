@@ -173,8 +173,33 @@ async function ensureBinary() {
 
 async function main() {
   try {
-    const binPath = await ensureBinary();
     const args = process.argv.slice(2);
+    if (args.length > 0 && (args[0] === 'xs' || args[0] === 'nioxs' || args[0] === 'gateway')) {
+      const nioxsRunner = path.join(__dirname, 'nioxs.js');
+      const child = spawn(process.execPath, [nioxsRunner, ...args.slice(1)], {
+        stdio: 'inherit',
+        cwd: process.cwd(),
+        env: process.env
+      });
+      const forwardSignal = (sig) => {
+        if (child.pid) {
+          try { process.kill(child.pid, sig); } catch {}
+        }
+      };
+      process.on('SIGINT', () => forwardSignal('SIGINT'));
+      process.on('SIGTERM', () => forwardSignal('SIGTERM'));
+      process.on('SIGHUP', () => forwardSignal('SIGHUP'));
+      child.on('exit', (code, signal) => {
+        process.exit(code ?? (signal ? 128 + (os.constants.signals[signal] || 1) : 1));
+      });
+      child.on('error', (err) => {
+        console.error(`[nio-xs] Execution error: ${err.message}`);
+        process.exit(1);
+      });
+      return;
+    }
+
+    const binPath = await ensureBinary();
 
     const child = spawn(binPath, args, {
       stdio: 'inherit',

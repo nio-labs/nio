@@ -5,7 +5,12 @@
   "main": "bin/nio.js",
   "bin": {
     "nio-ai": "bin/nio.js",
-    "nio": "bin/nio.js"
+    "nio": "bin/nio.js",
+    "nio-xs": "bin/nioxs.js",
+    "nioxs": "bin/nioxs.js"
+  },
+  "dependencies": {
+    "@nio-labs/nio-xs": "^0.4.3"
   },
   "scripts": {
     "start": "node ./bin/nio.js",
