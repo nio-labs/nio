@@ -164,21 +164,29 @@ struct Live {
 
 pub(crate) fn is_stage_banner(text: &str) -> bool {
     let lower = text.trim().to_lowercase();
-    lower.contains("nioflow")
-        || lower.contains("nioecho")
-        || lower.contains("niothinker")
-        || lower.contains("niosage")
-        || lower.contains("nioquill")
-        || lower.contains("nioscout")
-        || lower.contains("nioatom")
-        || lower.contains("nioneon")
-        || lower.contains("niohelm")
-        || lower.contains("nionova")
-        || lower.contains("nionano")
-        || lower.contains("profile:")
-        || lower.contains("fallback:")
-        || lower.contains("kilo auto free")
-        || lower.contains("helm skipped")
+    let names = [
+        "nioflow",
+        "nioecho",
+        "niothinker",
+        "niosage",
+        "nioquill",
+        "nioscout",
+        "nioatom",
+        "nioneon",
+        "niohelm",
+        "nionova",
+        "nionano",
+    ];
+    lower
+        .split_once('·')
+        .is_some_and(|(prefix, _)| names.iter().any(|name| prefix.trim_end().ends_with(name)))
+        || lower.starts_with("🔀 profile:")
+        || lower.starts_with("profile:")
+        || lower.starts_with("↪ fallback:")
+        || lower.starts_with("fallback:")
+        || lower.starts_with("↪ helm skipped")
+        || lower.starts_with("helm skipped")
+        || lower.starts_with("kilo auto free")
 }
 
 pub(crate) fn fix_trailing_colon(text: &str) -> String {
@@ -995,6 +1003,19 @@ mod response_boundary_tests {
         assert_eq!(
             boundary.push(" again", false),
             vec![(" again".into(), false)]
+        );
+    }
+    #[test]
+    fn answers_mentioning_profiles_are_not_progress_banners() {
+        assert!(!is_stage_banner("NioFlow plans your task."));
+        assert!(!is_stage_banner("The fallback: retries another model."));
+        let mut boundary = AnswerBoundary::default();
+        boundary.push("🌊 NioFlow · Planning\n", false);
+        assert!(
+            boundary
+                .push("NioFlow plans your task.\n", false)
+                .iter()
+                .any(|(_, new)| *new)
         );
     }
     #[test]
