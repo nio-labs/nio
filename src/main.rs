@@ -1622,6 +1622,199 @@ fn has_leaked_tool_call(text: &str) -> bool {
         || lower.contains("<function=")
         || lower.contains("<function name=")
         || lower.contains("<function_call")
+        || lower.contains("<|tool_call")
+}
+
+/// Parses pythonic tool call syntax like `[read_file(path='README.md', limit=50)]` or `read_file(...)`.
+fn parse_pythonic_calls(input: &str) -> Vec<(String, Value)> {
+    let mut results = Vec::new();
+    let trimmed = input.trim();
+    let content = if trimmed.starts_with('[') && trimmed.ends_with(']') {
+        &trimmed[1..trimmed.len() - 1]
+    } else {
+        trimmed
+    };
+
+    let bytes = content.as_bytes();
+    let len = bytes.len();
+    let mut i = 0;
+
+    while i < len {
+        // Skip whitespace, commas, brackets
+        while i < len && (bytes[i].is_ascii_whitespace() || bytes[i] == b',' || bytes[i] == b'[') {
+            i += 1;
+        }
+        if i >= len {
+            break;
+        }
+
+        // Identifier start: [a-zA-Z_]
+        if !bytes[i].is_ascii_alphabetic() && bytes[i] != b'_' {
+            i += 1;
+            continue;
+        }
+
+        let name_start = i;
+        while i < len && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_' || bytes[i] == b'-') {
+            i += 1;
+        }
+        let name = &content[name_start..i];
+
+        // Skip whitespace before '('
+        while i < len && bytes[i].is_ascii_whitespace() {
+            i += 1;
+        }
+
+        if i >= len || bytes[i] != b'(' {
+            continue;
+        }
+        i += 1; // skip '('
+
+        // Parse arguments inside (...)
+        let mut args_map = serde_json::Map::new();
+        while i < len {
+            // Skip whitespace and commas
+            while i < len && (bytes[i].is_ascii_whitespace() || bytes[i] == b',') {
+                i += 1;
+            }
+            if i >= len || bytes[i] == b')' {
+                break;
+            }
+
+            // Arg name: [a-zA-Z0-9_]
+            let arg_start = i;
+            while i < len && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
+                i += 1;
+            }
+            let arg_name = &content[arg_start..i];
+            if arg_name.is_empty() {
+                while i < len && bytes[i] != b',' && bytes[i] != b')' {
+                    i += 1;
+                }
+                continue;
+            }
+
+            // Skip whitespace before '='
+            while i < len && bytes[i].is_ascii_whitespace() {
+                i += 1;
+            }
+            if i < len && bytes[i] == b'=' {
+                i += 1; // skip '='
+            } else {
+                while i < len && bytes[i] != b',' && bytes[i] != b')' {
+                    i += 1;
+                }
+                continue;
+            }
+
+            // Skip whitespace before value
+            while i < len && bytes[i].is_ascii_whitespace() {
+                i += 1;
+            }
+            if i >= len {
+                break;
+            }
+
+            // Parse value
+            let parsed_val = if bytes[i] == b'\'' || bytes[i] == b'"' {
+                let quote = bytes[i];
+                i += 1;
+                let mut escaped = false;
+                let mut s = String::new();
+                while i < len {
+                    let b = bytes[i];
+                    if escaped {
+                        match b {
+                            b'n' => s.push('\n'),
+                            b'r' => s.push('\r'),
+                            b't' => s.push('\t'),
+                            b'\\' => s.push('\\'),
+                            q if q == quote => s.push(quote as char),
+                            other => {
+                                s.push('\\');
+                                s.push(other as char);
+                            }
+                        }
+                        escaped = false;
+                    } else if b == b'\\' {
+                        escaped = true;
+                    } else if b == quote {
+                        break;
+                    } else {
+                        s.push(b as char);
+                    }
+                    i += 1;
+                }
+                if i < len && bytes[i] == quote {
+                    i += 1;
+                }
+                Value::String(s)
+            } else if bytes[i] == b'{' || bytes[i] == b'[' {
+                let open = bytes[i];
+                let close = if open == b'{' { b'}' } else { b']' };
+                let val_start = i;
+                let mut depth = 0;
+                let mut in_str: Option<u8> = None;
+                let mut esc = false;
+                while i < len {
+                    let b = bytes[i];
+                    if let Some(q) = in_str {
+                        if esc {
+                            esc = false;
+                        } else if b == b'\\' {
+                            esc = true;
+                        } else if b == q {
+                            in_str = None;
+                        }
+                    } else if b == b'\'' || b == b'"' {
+                        in_str = Some(b);
+                    } else if b == open {
+                        depth += 1;
+                    } else if b == close {
+                        depth -= 1;
+                        if depth == 0 {
+                            i += 1;
+                            break;
+                        }
+                    }
+                    i += 1;
+                }
+                let raw_val = &content[val_start..i];
+                serde_json::from_str::<Value>(raw_val)
+                    .unwrap_or_else(|_| Value::String(raw_val.to_string()))
+            } else {
+                let val_start = i;
+                while i < len && bytes[i] != b',' && bytes[i] != b')' && bytes[i] != b']' {
+                    i += 1;
+                }
+                let raw = content[val_start..i].trim();
+                let lower = raw.to_ascii_lowercase();
+                if lower == "true" {
+                    Value::Bool(true)
+                } else if lower == "false" {
+                    Value::Bool(false)
+                } else if lower == "none" || lower == "null" {
+                    Value::Null
+                } else if let Ok(num) = raw.parse::<i64>() {
+                    json!(num)
+                } else if let Ok(num) = raw.parse::<f64>() {
+                    json!(num)
+                } else {
+                    Value::String(raw.to_string())
+                }
+            };
+
+            args_map.insert(arg_name.to_string(), parsed_val);
+        }
+
+        if i < len && bytes[i] == b')' {
+            i += 1; // skip ')'
+        }
+
+        results.push((name.to_string(), Value::Object(args_map)));
+    }
+
+    results
 }
 
 fn parse_parameter_value(val_str: &str) -> Value {
@@ -1783,7 +1976,70 @@ fn parse_single_tool_call_block(block: &str, index: usize) -> Option<AssistantTo
             }
         }
     }
-    parse_xml_function_tag(block, index)
+    if let Some(call) = parse_xml_function_tag(block, index) {
+        return Some(call);
+    }
+    let py_calls = parse_pythonic_calls(block);
+    if let Some((name, args)) = py_calls.into_iter().next() {
+        return Some(AssistantToolCall {
+            id: format!("recovered_call_{index}"),
+            name: normalize_tool_name(&name),
+            arguments: args,
+        });
+    }
+    None
+}
+
+fn parse_tool_call_block_calls(block: &str, start_index: usize) -> Vec<AssistantToolCall> {
+    let trimmed = block.trim();
+    if trimmed.starts_with('[') {
+        if let Ok(Value::Array(items)) = serde_json::from_str::<Value>(trimmed) {
+            let mut calls = Vec::new();
+            for item in items {
+                if let Some(name) = item.get("name").and_then(Value::as_str) {
+                    let args = item
+                        .get("arguments")
+                        .or_else(|| item.get("parameters"))
+                        .cloned()
+                        .unwrap_or(Value::Object(Default::default()));
+                    let args = if let Some(s) = args.as_str() {
+                        serde_json::from_str::<Value>(s)
+                            .unwrap_or(Value::Object(Default::default()))
+                    } else if args.is_object() {
+                        args
+                    } else {
+                        Value::Object(Default::default())
+                    };
+                    calls.push(AssistantToolCall {
+                        id: format!("recovered_call_{}", start_index + calls.len()),
+                        name: normalize_tool_name(name),
+                        arguments: args,
+                    });
+                }
+            }
+            if !calls.is_empty() {
+                return calls;
+            }
+        }
+        let py_calls = parse_pythonic_calls(trimmed);
+        if !py_calls.is_empty() {
+            return py_calls
+                .into_iter()
+                .enumerate()
+                .map(|(idx, (name, args))| AssistantToolCall {
+                    id: format!("recovered_call_{}", start_index + idx),
+                    name: normalize_tool_name(&name),
+                    arguments: args,
+                })
+                .collect();
+        }
+    }
+
+    if let Some(call) = parse_single_tool_call_block(trimmed, start_index) {
+        return vec![call];
+    }
+
+    Vec::new()
 }
 
 fn parse_leaked_tool_calls(text: &str) -> Vec<AssistantToolCall> {
@@ -1793,6 +2049,7 @@ fn parse_leaked_tool_calls(text: &str) -> Vec<AssistantToolCall> {
     while let Some(start_idx) = text[search_from..]
         .find("<tool_call")
         .or_else(|| text[search_from..].find("<function_call"))
+        .or_else(|| text[search_from..].find("<|tool_call"))
     {
         let abs_start = search_from + start_idx;
         let content_start = match text[abs_start..].find('>') {
@@ -1802,20 +2059,23 @@ fn parse_leaked_tool_calls(text: &str) -> Vec<AssistantToolCall> {
 
         let end_idx = text[content_start..]
             .find("</tool_call>")
-            .or_else(|| text[content_start..].find("</function_call>"));
+            .or_else(|| text[content_start..].find("</function_call>"))
+            .or_else(|| text[content_start..].find("<|tool_call_end|>"))
+            .or_else(|| text[content_start..].find("<|tool_call_end"))
+            .or_else(|| text[content_start..].find("|>"));
 
         let (block_content, next_search) = if let Some(end) = end_idx {
-            (
-                &text[content_start..content_start + end],
-                content_start + end + 12,
-            )
+            let next = match text[content_start + end..].find('>') {
+                Some(close_tag_end) => content_start + end + close_tag_end + 1,
+                None => content_start + end + 1,
+            };
+            (&text[content_start..content_start + end], next)
         } else {
             (&text[content_start..], text.len())
         };
 
-        if let Some(call) = parse_single_tool_call_block(block_content, calls.len()) {
-            calls.push(call);
-        }
+        let extracted = parse_tool_call_block_calls(block_content, calls.len());
+        calls.extend(extracted);
 
         search_from = next_search;
         if search_from >= text.len() {
@@ -1836,11 +2096,22 @@ fn strip_leaked_tool_calls(text: &mut String) {
     while let Some(start) = text
         .find("<tool_call")
         .or_else(|| text.find("<function_call"))
+        .or_else(|| text.find("<|tool_call"))
     {
         if let Some(end) = text[start..].find("</tool_call>") {
             text.replace_range(start..start + end + 12, "");
         } else if let Some(end) = text[start..].find("</function_call>") {
             text.replace_range(start..start + end + 16, "");
+        } else if let Some(end) = text[start..].find("<|tool_call_end|>") {
+            text.replace_range(start..start + end + 17, "");
+        } else if let Some(end) = text[start..].find("<|tool_call_end") {
+            let close = match text[start + end..].find('>') {
+                Some(i) => start + end + i + 1,
+                None => start + end + 15,
+            };
+            text.replace_range(start..close.min(text.len()), "");
+        } else if let Some(end) = text[start..].find("|>") {
+            text.replace_range(start..start + end + 2, "");
         } else {
             text.truncate(start);
             break;
@@ -1984,6 +2255,28 @@ term-132348-2
         assert_eq!(json_calls.len(), 1);
         assert_eq!(json_calls[0].name, "terminal_read");
         assert_eq!(json_calls[0].arguments["session_id"], "term-1");
+
+        // ChatML / Qwen pythonic syntax
+        let chatml_text = "<|tool_call_start|>[read_file(path='README.md', limit=50)]<|tool_call_end|>";
+        assert!(super::has_leaked_tool_call(chatml_text));
+        let chatml_calls = super::parse_leaked_tool_calls(chatml_text);
+        assert_eq!(chatml_calls.len(), 1);
+        assert_eq!(chatml_calls[0].name, "read_file");
+        assert_eq!(chatml_calls[0].arguments["path"], "README.md");
+        assert_eq!(chatml_calls[0].arguments["limit"], 50);
+
+        let mut cleaned_chatml = chatml_text.to_string();
+        super::strip_leaked_tool_calls(&mut cleaned_chatml);
+        assert!(cleaned_chatml.is_empty());
+
+        // Multiple pythonic calls
+        let multi_text = "<|tool_call_start|>[read_file(path='a.txt'), list_dir(path='crates')]<|tool_call_end|>";
+        let multi_calls = super::parse_leaked_tool_calls(multi_text);
+        assert_eq!(multi_calls.len(), 2);
+        assert_eq!(multi_calls[0].name, "read_file");
+        assert_eq!(multi_calls[0].arguments["path"], "a.txt");
+        assert_eq!(multi_calls[1].name, "list_dir");
+        assert_eq!(multi_calls[1].arguments["path"], "crates");
     }
 
     #[test]
@@ -3730,6 +4023,7 @@ fn process_sse_line(
                     "<function=",
                     "<function_call",
                     "<function name=",
+                    "<|tool_call",
                 ] {
                     if tail.starts_with(prefix) || prefix.starts_with(tail) {
                         leak_start = Some(check_from + idx);
@@ -3826,6 +4120,7 @@ fn process_json_completion(
                     "<function=",
                     "<function_call",
                     "<function name=",
+                    "<|tool_call",
                 ] {
                     if tail.starts_with(prefix) || prefix.starts_with(tail) {
                         leak_start = Some(check_from + idx);
