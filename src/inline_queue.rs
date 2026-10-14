@@ -161,24 +161,22 @@ struct Live {
 }
 
 pub(crate) fn is_stage_banner(text: &str) -> bool {
-    let trimmed = text.trim();
-    let stripped = trimmed.strip_prefix("↪ ").unwrap_or(trimmed);
-    let stripped = stripped.trim_start_matches(|c: char| !c.is_alphanumeric());
-    stripped.starts_with("NioFlow")
-        || stripped.starts_with("NioEcho")
-        || stripped.starts_with("NioThinker")
-        || stripped.starts_with("NioSage")
-        || stripped.starts_with("NioQuill")
-        || stripped.starts_with("NioScout")
-        || stripped.starts_with("NioAtom")
-        || stripped.starts_with("NioNeon")
-        || stripped.starts_with("NioHelm")
-        || stripped.starts_with("NioNova")
-        || stripped.starts_with("NioNano")
-        || trimmed.starts_with("🔀 profile:")
-        || trimmed.starts_with("↪ fallback:")
-        || trimmed == "↪ Using Kilo Auto Free"
-        || trimmed == "↪ Helm skipped (--no-helm)"
+    let lower = text.trim().to_lowercase();
+    lower.contains("nioflow")
+        || lower.contains("nioecho")
+        || lower.contains("niothinker")
+        || lower.contains("niosage")
+        || lower.contains("nioquill")
+        || lower.contains("nioscout")
+        || lower.contains("nioatom")
+        || lower.contains("nioneon")
+        || lower.contains("niohelm")
+        || lower.contains("nionova")
+        || lower.contains("nionano")
+        || lower.contains("profile:")
+        || lower.contains("fallback:")
+        || lower.contains("kilo auto free")
+        || lower.contains("helm skipped")
 }
 
 pub(crate) fn fix_trailing_colon(text: &str) -> String {
@@ -245,16 +243,18 @@ impl Live {
         let started = formatter.output_started;
         let formatted = formatter.push(text);
         let clean = strip_terminal_ansi(&formatted);
-        let trimmed = clean.trim();
-        if !trimmed.is_empty() {
-            if is_stage_banner(trimmed) {
-                self.thinking = true;
-                self.status = "Thinking".into();
-                self.status_started = Instant::now();
-            } else {
-                self.response_started = true;
-                self.thinking = false;
-            }
+        let non_banner_lines: Vec<&str> = clean
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty() && !is_stage_banner(l))
+            .collect();
+        if !non_banner_lines.is_empty() {
+            self.response_started = true;
+            self.thinking = false;
+        } else if clean.lines().any(is_stage_banner) {
+            self.thinking = true;
+            self.status = "Thinking".into();
+            self.status_started = Instant::now();
         }
         if !started && !formatted.is_empty() {
             if self.needs_prefix_newline {
