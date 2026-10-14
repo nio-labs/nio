@@ -347,6 +347,18 @@ struct AssistantToolCall {
     arguments: Value,
 }
 
+static ACTIVE_SPINNER_ABORT: Mutex<Option<tokio::task::AbortHandle>> = Mutex::new(None);
+
+fn pause_active_spinner() {
+    if let Ok(mut active) = ACTIVE_SPINNER_ABORT.lock() {
+        if let Some(handle) = active.take() {
+            handle.abort();
+            eprint!("\r\x1b[2K");
+            let _ = io::stderr().flush();
+        }
+    }
+}
+
 struct Spinner {
     task: Option<tokio::task::JoinHandle<()>>,
     started: Option<Instant>,
@@ -384,6 +396,9 @@ impl Spinner {
                 frame = (frame + 1) % frames.len();
             }
         });
+        if let Ok(mut active) = ACTIVE_SPINNER_ABORT.lock() {
+            *active = Some(task.abort_handle());
+        }
         Self {
             task: Some(task),
             started: Some(started),
@@ -395,6 +410,9 @@ impl Spinner {
     }
 
     fn pause(&mut self) {
+        if let Ok(mut active) = ACTIVE_SPINNER_ABORT.lock() {
+            active.take();
+        }
         if let Some(task) = self.task.take() {
             task.abort();
             eprint!("\r\x1b[2K");
@@ -3807,6 +3825,7 @@ fn process_json_completion(
 }
 
 fn emit_assistant_start(options: &Options) -> Result<(), String> {
+    pause_active_spinner();
     if !options.json_output {
         eprint!("\r\x1b[2K");
         let _ = io::stderr().flush();
@@ -5678,7 +5697,6 @@ async fn run_agent_turn_inner(
             };
             let status_code = response.status().as_u16();
             if !matches!(status_code, 429 | 502 | 503 | 504) {
-                spinner.pause();
                 break (response, spinner);
             }
             spinner.stop();
