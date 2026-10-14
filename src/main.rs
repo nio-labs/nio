@@ -55,7 +55,7 @@ const DEFAULT_MODEL_FALLBACKS: [&str; 5] = [
     "kilo::kilo-auto/free",
 ];
 const PROVIDER_PRESETS: [(&str, &str, &str); 15] = [
-    ("nioxs", "NioXS (PoC)", NIOXS_BASE_URL),
+    ("nioxs", "NioXS", NIOXS_BASE_URL),
     ("openrouter", "OpenRouter", OPENROUTER_BASE_URL),
     (
         "vercel",
@@ -6942,7 +6942,7 @@ fn configured_model_providers(config: &UserConfig) -> Vec<ProviderConfig> {
             .cloned()
             .unwrap_or_else(|| ProviderConfig {
                 id: "nioxs".into(),
-                name: "NioXS (PoC)".into(),
+                name: "NioXS".into(),
                 base_url: NIOXS_BASE_URL.into(),
                 api_key: None,
             }),
@@ -6968,7 +6968,7 @@ mod default_provider_tests {
         assert_eq!(providers[0].id, "kilo");
         assert_eq!(providers[0].base_url, KILO_BASE_URL);
         assert_eq!(providers[1].id, "nioxs");
-        assert_eq!(providers[1].name, "NioXS (PoC)");
+        assert_eq!(providers[1].name, "NioXS");
         assert_eq!(providers[1].base_url, NIOXS_BASE_URL);
         assert!(is_provider_available(&config, "nioxs"));
         assert!(is_provider_available(&config, "kilo"));
@@ -6979,7 +6979,7 @@ mod default_provider_tests {
         let config = UserConfig {
             providers: vec![ProviderConfig {
                 id: "nioxs".into(),
-                name: "NioXS (PoC)".into(),
+                name: "NioXS".into(),
                 base_url: "http://127.0.0.1:9999/v1".into(),
                 api_key: None,
             }],

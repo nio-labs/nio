@@ -355,7 +355,7 @@ fn nioxs_provider_preserves_model_id_and_executes_client_tools() {
         &project.config,
         json!({
             "request_interval_seconds":0,
-            "providers":[{"id":"nioxs","name":"NioXS (PoC)","base_url":provider.url}]
+            "providers":[{"id":"nioxs","name":"NioXS","base_url":provider.url}]
         })
         .to_string(),
     )

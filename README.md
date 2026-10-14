@@ -325,9 +325,9 @@ nio persona reset
 
 The interactive selector is accessible in the terminal with `nio persona`, inside interactive sessions via `:persona` (or `/persona`), and directly within the TUI `:settings` menu. Persona identities and instructions are strictly enforced in the system prompt and reflected in the session header.
 
-Preset providers include OpenRouter, Groq, Cerebras, Gemini, DeepSeek, Together AI, Fireworks, Mistral, SiliconFlow, Anthropic Claude, OpenAI Codex, and NioXS (PoC).
+Preset providers include NioXS, OpenRouter, Groq, Cerebras, Gemini, DeepSeek, Together AI, Fireworks, Mistral, SiliconFlow, Anthropic Claude, and OpenAI Codex.
 
-Kilo is the default built-in provider, offering free tier access with automatic fallback from OpenRouter Free Models Router (`kilo::openrouter/free`) to Mini Code (`kilo::cohere/north-mini-code:free`) to StepFun (`kilo::stepfun/step-5-preview-free`) to Auto Free (`kilo::kilo-auto/free`). NioXS is currently a Proof of Concept (PoC) provider under development (`http://127.0.0.1:7460/v1`) with `nioxs::nio-nano`. Use `:provider` to customize provider endpoints or API keys.
+NioXS is the bundled companion gateway provider (running locally at `http://127.0.0.1:7460/v1`) with default model NioAtom (`nioxs::nio-atom`). Kilo provides cloud fallback access with automatic fallback from OpenRouter Free Models Router (`kilo::openrouter/free`) to Mini Code (`kilo::cohere/north-mini-code:free`) to StepFun (`kilo::stepfun/step-5-preview-free`) to Auto Free (`kilo::kilo-auto/free`). Use `:provider` to customize provider endpoints or API keys.
 
 File tools stay inside the current directory. Auto-discovery skips generated folders, secret filenames, and `.gitignore` paths. Text reads and writes are capped at 512 KiB; supported document inputs may be up to 20 MiB, with at most 512 KiB of extracted text. Search reads at most 16 MiB and returns at most 50 entries. `.gitignore` parsing is bounded to 256 KiB.
 
@@ -433,7 +433,7 @@ The Rust integration tests run the real CLI against a local mock provider, cover
 ## Repository
 
 - Language: Rust
-- Default provider: Kilo (`kilo::openrouter/free` -> Mini Code -> StepFun -> Auto Free)
-- PoC provider: NioXS (`nioxs::nio-nano`)
+- Default provider: NioXS (`nioxs::nio-atom`) with Kilo cloud fallback (`kilo::openrouter/free` -> Mini Code -> StepFun -> Auto Free)
+- Companion gateway: NioXS (`http://127.0.0.1:7460/v1`)
 - Repository: https://github.com/nio-labs/nio
 - License: [MIT](LICENSE)
