@@ -55,7 +55,7 @@ Start the interactive agent:
 nio
 ```
 
-On first launch, Nio defaults to Kilo Gateway with free model fallback (`kilo::cohere/north-mini-code:free` -> `kilo::stepfun/step-5-preview-free` -> `kilo::kilo-auto/free`). NioXS is available as a PoC provider (`http://127.0.0.1:7460/v1`). Use `nio models` to browse providers and save another model; saved model choices and explicit overrides take precedence over the application default.
+On first launch, Nio defaults to Kilo Gateway with free model fallback (`kilo::openrouter/free` -> `kilo::cohere/north-mini-code:free` -> `kilo::stepfun/step-5-preview-free` -> `kilo::kilo-auto/free`). NioXS is available as a PoC provider (`http://127.0.0.1:7460/v1`). Use `nio models` to browse providers and save another model; saved model choices and explicit overrides take precedence over the application default.
 
 Override the model for a one-shot query:
 
@@ -322,7 +322,7 @@ The interactive selector is accessible in the terminal with `nio persona`, insid
 
 Preset providers include OpenRouter, Groq, Cerebras, Gemini, DeepSeek, Together AI, Fireworks, Mistral, SiliconFlow, Anthropic Claude, OpenAI Codex, and NioXS (PoC).
 
-Kilo is the default built-in provider, offering free tier access with automatic fallback from Mini Code (`kilo::cohere/north-mini-code:free`) to StepFun (`kilo::stepfun/step-5-preview-free`) to Auto Free (`kilo::kilo-auto/free`). NioXS is currently a Proof of Concept (PoC) provider under development (`http://127.0.0.1:7460/v1`) with `nioxs::nio-nano`. Use `:provider` to customize provider endpoints or API keys.
+Kilo is the default built-in provider, offering free tier access with automatic fallback from OpenRouter Free Models Router (`kilo::openrouter/free`) to Mini Code (`kilo::cohere/north-mini-code:free`) to StepFun (`kilo::stepfun/step-5-preview-free`) to Auto Free (`kilo::kilo-auto/free`). NioXS is currently a Proof of Concept (PoC) provider under development (`http://127.0.0.1:7460/v1`) with `nioxs::nio-nano`. Use `:provider` to customize provider endpoints or API keys.
 
 File tools stay inside the current directory. Auto-discovery skips generated folders, secret filenames, and `.gitignore` paths. Text reads and writes are capped at 512 KiB; supported document inputs may be up to 20 MiB, with at most 512 KiB of extracted text. Search reads at most 16 MiB and returns at most 50 entries. `.gitignore` parsing is bounded to 256 KiB.
 
@@ -428,7 +428,7 @@ The Rust integration tests run the real CLI against a local mock provider, cover
 ## Repository
 
 - Language: Rust
-- Default provider: Kilo (`kilo::cohere/north-mini-code:free` -> StepFun -> Auto Free)
+- Default provider: Kilo (`kilo::openrouter/free` -> Mini Code -> StepFun -> Auto Free)
 - PoC provider: NioXS (`nioxs::nio-nano`)
 - Repository: https://github.com/nio-labs/nio
 - License: [MIT](LICENSE)

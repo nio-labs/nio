@@ -46,8 +46,9 @@ use unicode_width::UnicodeWidthStr;
 const KILO_BASE_URL: &str = "https://api.kilo.ai/api/gateway";
 const OPENROUTER_BASE_URL: &str = "https://openrouter.ai/api/v1";
 const NIOXS_BASE_URL: &str = "http://127.0.0.1:7460/v1";
-const DEFAULT_MODEL_SELECTOR: &str = "kilo::cohere/north-mini-code:free";
-const DEFAULT_MODEL_FALLBACKS: [&str; 3] = [
+const DEFAULT_MODEL_SELECTOR: &str = "kilo::openrouter/free";
+const DEFAULT_MODEL_FALLBACKS: [&str; 4] = [
+    "kilo::openrouter/free",
     "kilo::cohere/north-mini-code:free",
     "kilo::stepfun/step-5-preview-free",
     "kilo::kilo-auto/free",
@@ -4973,6 +4974,8 @@ async fn run_agent_turn(
 fn next_default_fallback_model(current_model: &str) -> Option<&'static str> {
     let normalized = if current_model.contains("::") {
         current_model
+    } else if current_model.starts_with("openrouter/") {
+        "kilo::openrouter/free"
     } else if current_model.starts_with("cohere/") {
         "kilo::cohere/north-mini-code:free"
     } else if current_model.starts_with("stepfun/") {
@@ -6468,6 +6471,10 @@ mod default_provider_tests {
     #[test]
     fn default_model_fallback_chain_order() {
         assert_eq!(
+            next_default_fallback_model("kilo::openrouter/free"),
+            Some("kilo::cohere/north-mini-code:free")
+        );
+        assert_eq!(
             next_default_fallback_model("kilo::cohere/north-mini-code:free"),
             Some("kilo::stepfun/step-5-preview-free")
         );
@@ -6481,11 +6488,12 @@ mod default_provider_tests {
     }
 
     #[test]
-    fn model_priority_rank_ranks_mini_code_stepfun_and_auto_free_first() {
-        assert_eq!(model_priority_rank("cohere/north-mini-code:free"), 0);
-        assert_eq!(model_priority_rank("stepfun/step-5-preview-free"), 1);
-        assert_eq!(model_priority_rank("kilo-auto/free"), 2);
-        assert_eq!(model_priority_rank("other-model"), 3);
+    fn model_priority_rank_ranks_openrouter_mini_code_stepfun_and_auto_free_first() {
+        assert_eq!(model_priority_rank("openrouter/free"), 0);
+        assert_eq!(model_priority_rank("cohere/north-mini-code:free"), 1);
+        assert_eq!(model_priority_rank("stepfun/step-5-preview-free"), 2);
+        assert_eq!(model_priority_rank("kilo-auto/free"), 3);
+        assert_eq!(model_priority_rank("other-model"), 4);
     }
 }
 
@@ -6539,14 +6547,16 @@ async fn fetch_model_choices(options: &Options) -> Result<Vec<ModelChoice>, Stri
 }
 
 fn model_priority_rank(id: &str) -> usize {
-    if id == "cohere/north-mini-code:free" || id == "kilo::cohere/north-mini-code:free" {
+    if id == "openrouter/free" || id == "kilo::openrouter/free" {
         0
-    } else if id == "stepfun/step-5-preview-free" || id == "kilo::stepfun/step-5-preview-free" {
+    } else if id == "cohere/north-mini-code:free" || id == "kilo::cohere/north-mini-code:free" {
         1
-    } else if id == "kilo-auto/free" || id == "kilo::kilo-auto/free" {
+    } else if id == "stepfun/step-5-preview-free" || id == "kilo::stepfun/step-5-preview-free" {
         2
-    } else {
+    } else if id == "kilo-auto/free" || id == "kilo::kilo-auto/free" {
         3
+    } else {
+        4
     }
 }
 
