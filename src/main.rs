@@ -4171,12 +4171,18 @@ async fn compact_context_if_needed(
 }
 
 fn flow_failure_reason(flow: &Value) -> Option<String> {
-    (flow["status"] == "failed").then(|| flow["error"].as_str()
-        .unwrap_or("NioFlow did not complete; completion is unverified").to_string())
+    (flow["status"] == "failed").then(|| {
+        flow["error"]
+            .as_str()
+            .unwrap_or("NioFlow did not complete; completion is unverified")
+            .to_string()
+    })
 }
 
 fn legacy_unverified_flow_answer(answer: &str) -> bool {
-    answer.trim().starts_with("⚠️ The final stage returned no answer; completion is unverified.")
+    answer
+        .trim()
+        .starts_with("⚠️ The final stage returned no answer; completion is unverified.")
         && answer.contains("NioFlow stopped without dispatching further tools.")
 }
 
@@ -13685,21 +13691,51 @@ mod unverified_flow_retry_tests {
     use super::*;
     #[test]
     fn explicit_failed_flow_metadata_is_not_a_successful_answer() {
-        assert_eq!(flow_failure_reason(&json!({"status":"failed","error":"No final answer"})),Some("No final answer".into()));
+        assert_eq!(
+            flow_failure_reason(&json!({"status":"failed","error":"No final answer"})),
+            Some("No final answer".into())
+        );
         assert!(flow_failure_reason(&json!({"status":"completed"})).is_none());
-        assert!(flow_failure_reason(&json!({"helm_verdict":{"verdict":"conditional_go"}})).is_none());
-        let options=default_options("run");
-        let mut answer=String::new();let mut emitted=0;let mut tools=std::collections::BTreeMap::new();
-        let mut started=false;let mut formatter=MarkdownFormatter::new(false);let mut finished=None;
-        let event=format!("data: {}",json!({"choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"nioxs":{"flow":{"status":"failed","error":"No final answer","retryable":true}}}));
-        assert!(process_sse_line(&event,&options,&mut answer,&mut emitted,&mut tools,&mut started,&mut formatter,&mut finished).is_err());
+        assert!(
+            flow_failure_reason(&json!({"helm_verdict":{"verdict":"conditional_go"}})).is_none()
+        );
+        let options = default_options("run");
+        let mut answer = String::new();
+        let mut emitted = 0;
+        let mut tools = std::collections::BTreeMap::new();
+        let mut started = false;
+        let mut formatter = MarkdownFormatter::new(false);
+        let mut finished = None;
+        let event = format!(
+            "data: {}",
+            json!({"choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"nioxs":{"flow":{"status":"failed","error":"No final answer","retryable":true}}})
+        );
+        assert!(
+            process_sse_line(
+                &event,
+                &options,
+                &mut answer,
+                &mut emitted,
+                &mut tools,
+                &mut started,
+                &mut formatter,
+                &mut finished
+            )
+            .is_err()
+        );
         assert!(process_json_completion(json!({"choices":[{"finish_reason":"stop","message":{"content":"warning"}}],"nioxs":{"flow":{"status":"failed","error":"No final answer"}}}),&options,&mut answer,&mut emitted,&mut tools,&mut started,&mut formatter).is_err());
         assert!(!started);
     }
     #[test]
     fn legacy_warning_is_detected_without_matching_normal_uncertainty() {
-        assert!(legacy_unverified_flow_answer("⚠️ The final stage returned no answer; completion is unverified. NioFlow stopped without dispatching further tools."));
-        assert!(!legacy_unverified_flow_answer("Completion is unverified; inspect the proposed change."));
-        assert!(!legacy_unverified_flow_answer("The final stage returned no answer is an error message."));
+        assert!(legacy_unverified_flow_answer(
+            "⚠️ The final stage returned no answer; completion is unverified. NioFlow stopped without dispatching further tools."
+        ));
+        assert!(!legacy_unverified_flow_answer(
+            "Completion is unverified; inspect the proposed change."
+        ));
+        assert!(!legacy_unverified_flow_answer(
+            "The final stage returned no answer is an error message."
+        ));
     }
 }
