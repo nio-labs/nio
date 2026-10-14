@@ -1655,7 +1655,8 @@ fn parse_pythonic_calls(input: &str) -> Vec<(String, Value)> {
         }
 
         let name_start = i;
-        while i < len && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_' || bytes[i] == b'-') {
+        while i < len && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_' || bytes[i] == b'-')
+        {
             i += 1;
         }
         let name = &content[name_start..i];
@@ -2257,7 +2258,8 @@ term-132348-2
         assert_eq!(json_calls[0].arguments["session_id"], "term-1");
 
         // ChatML / Qwen pythonic syntax
-        let chatml_text = "<|tool_call_start|>[read_file(path='README.md', limit=50)]<|tool_call_end|>";
+        let chatml_text =
+            "<|tool_call_start|>[read_file(path='README.md', limit=50)]<|tool_call_end|>";
         assert!(super::has_leaked_tool_call(chatml_text));
         let chatml_calls = super::parse_leaked_tool_calls(chatml_text);
         assert_eq!(chatml_calls.len(), 1);
