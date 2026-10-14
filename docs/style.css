@@ -465,23 +465,67 @@ tr:nth-child(even) td {
 
 /* Callout Banners */
 .callout {
-  padding: 14px 18px;
+  padding: 20px 24px;
   border-radius: 8px;
-  margin-bottom: 20px;
+  margin: 32px 0;
   font-size: 14px;
-  line-height: 1.5;
+  line-height: 1.6;
+}
+
+.callout h3,
+.callout h4 {
+  margin-top: 0;
+  margin-bottom: 8px;
+  font-size: 16px;
+  color: var(--text-primary);
+}
+
+.callout p {
+  margin-bottom: 0;
+  color: var(--text-secondary);
+  line-height: 1.6;
 }
 
 .callout-info {
-  background-color: rgba(9, 105, 218, 0.06);
+  background-color: rgba(0, 128, 128, 0.08);
   border-left: 4px solid var(--accent-color);
-  color: #1f2328;
+  color: var(--text-primary);
 }
 
 .callout-success {
   background-color: rgba(26, 127, 55, 0.08);
   border-left: 4px solid var(--success-color);
-  color: #1f2328;
+  color: var(--text-primary);
+}
+
+/* Cards & Card Grids */
+.card {
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 18px 22px;
+  margin-bottom: 16px;
+}
+
+.card h3 {
+  margin-top: 0;
+  margin-bottom: 8px;
+  font-size: 15px;
+  color: var(--text-primary);
+}
+
+.card p {
+  margin-bottom: 0;
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+  margin: 20px 0;
 }
 
 /* FAQ Items */
@@ -489,7 +533,7 @@ tr:nth-child(even) td {
   background-color: var(--bg-secondary);
   border: 1px solid var(--border-color);
   border-radius: 8px;
-  padding: 16px 20px;
+  padding: 18px 22px;
   margin-bottom: 14px;
 }
 
@@ -503,6 +547,8 @@ tr:nth-child(even) td {
 .faq-item p {
   margin-bottom: 0;
   font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.6;
 }
 
 /* Responsive */

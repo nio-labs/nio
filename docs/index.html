@@ -325,7 +325,7 @@ nio plugins install &lt;plugin-id&gt;</code></pre>
             </tbody>
           </table>
 
-          <div class="card" style="margin-top: 20px; border-left: 4px solid var(--accent-color);">
+          <div class="callout callout-info">
             <h3>Looking for REPL &amp; Interactive Mode Commands?</h3>
             <p>During an active coding session in the terminal, type <code>:</code> to access the interactive command palette. All 24 commands, shortcuts, and switches are detailed in the <a href="commands.html" style="color: var(--accent-color); font-weight: 600;">Interactive : Commands Guide →</a>.</p>
           </div>
@@ -334,17 +334,58 @@ nio plugins install &lt;plugin-id&gt;</code></pre>
         <!-- FAQ -->
         <section id="faq" class="doc-section">
           <div class="section-header">
-            <h2>FAQ</h2>
+            <h2>Frequently Asked Questions</h2>
+            <p>Answers to common questions about setup, offline usage, providers, safety, and workflows.</p>
           </div>
 
-          <div class="card" style="margin-bottom: 16px;">
-            <h3>Do I need to install NioXS separately?</h3>
-            <p>No. When you install or run NioAI, NioXS is already bundled. NioAI will automatically download or link the native NioXS binary and launch it as needed.</p>
+          <div class="faq-item">
+            <h3>Do I need to install NioXS or NioDB separately?</h3>
+            <p>No. NioXS companion gateway and its embedded vector database are completely pre-bundled with NioAI. When you run <code>nio</code> or <code>npx @nio-labs/nio-ai</code>, NioAI automatically probes port 7460 and starts the background gateway seamlessly without any manual configuration.</p>
           </div>
 
-          <div class="card">
-            <h3>Can I use my own OpenAI, Anthropic, or OpenRouter keys?</h3>
-            <p>Yes. Run <code>nio provider add</code> or set environment variables like <code>OPENAI_API_KEY</code> or <code>OPENROUTER_API_KEY</code>.</p>
+          <div class="faq-item">
+            <h3>What is NioAtom and why is it the default model?</h3>
+            <p>NioAtom (<code>nioxs::nio-atom</code>) is our purpose-built coding model tuned specifically for autonomous multi-file refactoring, atomic diff application, compiler error recovery, and iterative project-level planning. It provides high precision with low latency and optimal token economy.</p>
+          </div>
+
+          <div class="faq-item">
+            <h3>Can I use my own OpenAI, Anthropic, Gemini, or DeepSeek API keys?</h3>
+            <p>Yes. You can configure providers interactively with <code>:provider</code> during a session, run <code>nio provider add</code> from your shell, or simply export standard environment variables such as <code>OPENAI_API_KEY</code>, <code>ANTHROPIC_API_KEY</code>, <code>GEMINI_API_KEY</code>, <code>DEEPSEEK_API_KEY</code>, or <code>OPENROUTER_API_KEY</code>.</p>
+          </div>
+
+          <div class="faq-item">
+            <h3>Can I run NioAI completely offline with local models?</h3>
+            <p>Yes! NioAI seamlessly connects to local LLMs through Ollama, llama.cpp, or any OpenAI-compatible local server. Select your local model with <code>:model</code> or run <code>nio --model ollama::qwen2.5-coder:32b</code>. Vector memory and companion routing run 100% on your machine with zero cloud connectivity.</p>
+          </div>
+
+          <div class="faq-item">
+            <h3>How does NioAI safeguard my codebase against unintended edits?</h3>
+            <p>Every file modification is applied atomically with an automatic backup snapshot stored in your project journal. If any edit is unwanted, simply type <code>:undo</code> to roll it back instantly. Furthermore, strict path canonicalization mathematically prevents tools from reading or writing outside your repository root.</p>
+          </div>
+
+          <div class="faq-item">
+            <h3>What is the difference between Ask, Plan, and Build modes?</h3>
+            <p><strong>Ask mode</strong> is completely read-only for answering questions, tracing architecture, and reviewing code without touching files. <strong>Plan mode</strong> analyzes requirements and decomposes tasks into structured implementation checklists. <strong>Build mode</strong> is the full autonomous agent that edits files, runs compilers, and validates tests. Switch modes anytime with <code>:mode</code>.</p>
+          </div>
+
+          <div class="faq-item">
+            <h3>How do I customize project guidelines or assistant personas?</h3>
+            <p>You can add a <code>.niorules</code> or <code>AGENTS.md</code> file in your repository root with team coding standards and conventions. You can also configure persistent personas using <code>:persona menu</code> or set one directly via <code>nio persona set "Senior Rust Architect"</code>.</p>
+          </div>
+
+          <div class="faq-item">
+            <h3>How does the prompt message queue work?</h3>
+            <p>While NioAI is executing long tool runs or compiling code, you can continue typing new thoughts or follow-up instructions into the prompt. NioAI enqueues them into an internal message pipeline. You can manage or inspect pending items at any time with <code>:queue</code>, <code>:queue pause</code>, or <code>:queue clear</code>.</p>
+          </div>
+
+          <div class="faq-item">
+            <h3>How do I review changes made during a coding turn?</h3>
+            <p>Type <code>:diff</code> to view the active git diff across the repository. You can also press <kbd>d</kbd> or type <code>:details</code> immediately after a turn to toggle an expanded line-by-line diff view of the latest file edit.</p>
+          </div>
+
+          <div class="faq-item">
+            <h3>Where are conversation sessions saved, and how do I resume them?</h3>
+            <p>Session histories are automatically saved in <code>.nio/sessions/</code> inside your project directory. You can browse and switch between past conversations interactively using <code>:sessions</code> or <code>:history</code>, or run <code>nio sessions</code> from your terminal.</p>
           </div>
         </section>
       </div>
