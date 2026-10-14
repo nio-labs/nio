@@ -4721,7 +4721,7 @@ async fn execute_agent_tool(
             );
             if end < lines.len() {
                 result.push_str(&format!(
-                    "\n[More lines available. Read the next section with start_line: {}.]",
+                    "\n[More lines available. Read the next section with start_line: {}. Calling read_file without start_line will re-read line 1.]",
                     end + 1
                 ));
             }
