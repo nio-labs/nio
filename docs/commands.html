@@ -1,0 +1,518 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Complete guide to the NioAI interactive command palette (:), keyboard shortcuts, workflow controls, model switching, and session management.">
+  <meta name="theme-color" content="#f6f8fa">
+  <title>Command Palette (:) — NioAI Documentation</title>
+  <link rel="icon" type="image/svg+xml" href="logo.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Google+Sans+Code:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism.min.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="mobile-header">
+    <button class="hamburger-btn" id="menuToggle" type="button" aria-label="Toggle navigation" aria-controls="sidebar" aria-expanded="false">
+      <span></span><span></span><span></span>
+    </button>
+    <a href="index.html" class="brand-title">
+      <img class="brand-logo" src="logo.svg" alt="NioAI logo">
+      <span class="brand-name">NioAI</span>
+      <span class="badge">v0.3.9</span>
+    </a>
+    <button class="theme-toggle-btn" type="button" aria-label="Toggle theme">
+      <span class="theme-icon">
+        <svg viewBox="0 0 16 16"><path d="M6 .278a.768.768 0 0 1 .08.858 7.208 7.208 0 0 0-.878 3.46c0 4.021 3.278 7.277 7.318 7.277.527 0 1.04-.055 1.533-.16a.787.787 0 0 1 .81.316.733.733 0 0 1-.031.893A8.349 8.349 0 0 1 8.344 16C3.734 16 0 12.286 0 7.71 0 4.266 2.114 1.312 5.124.06A.752.752 0 0 1 6 .278z"/></svg>
+      </span>
+    </button>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <a href="index.html" class="sidebar-brand">
+          <img class="brand-logo" src="logo.svg" alt="NioAI logo">
+          <span class="brand-text">
+            <span class="brand-name">NioAI</span>
+            <span class="brand-sub">Autonomous Terminal Agent</span>
+          </span>
+        </a>
+      </div>
+      <nav class="sidebar-nav" aria-label="Documentation">
+        <div class="nav-section">
+          <div class="nav-section-title">Navigation</div>
+          <a href="index.html" class="nav-link">← Main Documentation</a>
+          <a href="#overview" class="nav-link active">Palette Overview</a>
+          <a href="#shortcuts" class="nav-link">Keybindings &amp; Shortcuts</a>
+        </div>
+        <div class="nav-section">
+          <div class="nav-section-title">Command Categories</div>
+          <a href="#autonomy" class="nav-link">Autonomy &amp; Workflow</a>
+          <a href="#models" class="nav-link">Models &amp; Providers</a>
+          <a href="#queue-sessions" class="nav-link">Queues &amp; Sessions</a>
+          <a href="#extensibility" class="nav-link">Extensibility &amp; Skills</a>
+          <a href="#system" class="nav-link">System &amp; Daemons</a>
+        </div>
+        <div class="nav-section">
+          <div class="nav-section-title">Reference</div>
+          <a href="#cheat-sheet" class="nav-link">Command Quick Reference</a>
+        </div>
+      </nav>
+      <div class="sidebar-footer">
+        <button class="theme-toggle-btn" type="button" aria-label="Toggle theme">
+          <span class="theme-icon">
+            <svg viewBox="0 0 16 16"><path d="M6 .278a.768.768 0 0 1 .08.858 7.208 7.208 0 0 0-.878 3.46c0 4.021 3.278 7.277 7.318 7.277.527 0 1.04-.055 1.533-.16a.787.787 0 0 1 .81.316.733.733 0 0 1-.031.893A8.349 8.349 0 0 1 8.344 16C3.734 16 0 12.286 0 7.71 0 4.266 2.114 1.312 5.124.06A.752.752 0 0 1 6 .278z"/></svg>
+          </span>
+          <span class="theme-text">Dark mode</span>
+        </button>
+        <a href="https://github.com/nio-labs/nio" target="_blank" rel="noreferrer" class="github-link">
+          <svg height="18" width="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg>
+          <span>GitHub: nio-labs/nio</span>
+        </a>
+      </div>
+    </aside>
+
+    <main class="content-wrapper">
+      <div class="content-container">
+        <!-- OVERVIEW -->
+        <section id="overview" class="doc-section">
+          <div class="hero-header">
+            <div class="hero-badges">
+              <span class="badge badge-accent">Interactive REPL</span>
+              <span class="badge">24 Commands</span>
+              <span class="badge">Zero Friction</span>
+            </div>
+            <h1 class="hero-title">The Interactive <code>:</code> Command Palette</h1>
+            <p class="hero-desc">Control every aspect of NioAI without leaving your terminal prompt. Type <code>:</code> followed by the command name or press <code>Tab</code> to open the live interactive picker.</p>
+            <div class="capsule-actions">
+              <a class="capsule-button" href="#shortcuts">View Keybindings →</a>
+              <a class="capsule-button capsule-button-secondary" href="index.html">← Back to Main Docs</a>
+            </div>
+          </div>
+        </section>
+
+        <!-- KEYBOARD SHORTCUTS -->
+        <section id="shortcuts" class="doc-section">
+          <div class="section-header">
+            <h2>Keyboard Shortcuts &amp; Navigation</h2>
+            <p>Master these essential keys for instant control during any active coding session.</p>
+          </div>
+
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Key / Shortcut</th>
+                <th>Context</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>:</code></td>
+                <td>Prompt</td>
+                <td>Triggers the command palette prefix with fuzzy completion</td>
+              </tr>
+              <tr>
+                <td><code>Tab</code> / <code>Shift+Tab</code></td>
+                <td>Menus / Prompt</td>
+                <td>Autocompletes the active command or cycles through inline picker options</td>
+              </tr>
+              <tr>
+                <td><code>↑</code> / <code>↓</code></td>
+                <td>Prompt</td>
+                <td>Navigate prompt history or move cursor in interactive selection menus</td>
+              </tr>
+              <tr>
+                <td><code>Enter</code></td>
+                <td>Prompt / Menus</td>
+                <td>Execute prompt or confirm selected item</td>
+              </tr>
+              <tr>
+                <td><code>Esc</code></td>
+                <td>Menus / Pickers</td>
+                <td>Dismiss current picker, abort command selection, or return to prompt</td>
+              </tr>
+              <tr>
+                <td><code>d</code></td>
+                <td>After edit</td>
+                <td>Quick toggle: expand or collapse latest file edit diff details</td>
+              </tr>
+              <tr>
+                <td><code>:ai</code></td>
+                <td>Shell prompt</td>
+                <td>Exit temporary shell session and return directly to Nio prompt</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+
+        <!-- AUTONOMY & WORKFLOW -->
+        <section id="autonomy" class="doc-section">
+          <div class="section-header">
+            <h2>Autonomy, Workflow &amp; Safety</h2>
+            <p>Commands that govern how NioAI investigates code, applies modifications, and verifies tasks.</p>
+          </div>
+
+          <div class="card" style="margin-bottom: 20px;">
+            <h3><code>:mode</code> — Choose Operational Mode</h3>
+            <p>Interactively switch between the three core agent modes:</p>
+            <ul>
+              <li><strong>Build</strong> — Full mutation mode. Nio creates files, applies targeted diffs, and runs validation commands.</li>
+              <li><strong>Ask</strong> — Read-only consultation mode. Explains codebases, traces call graphs, reviews PRs without editing files.</li>
+              <li><strong>Plan</strong> — Structured architectural decomposition. Generates actionable checklists before executing code.</li>
+            </ul>
+            <pre><code class="language-bash">:mode</code></pre>
+          </div>
+
+          <div class="card" style="margin-bottom: 20px;">
+            <h3><code>:approval</code> — Toggle Autonomous Approval</h3>
+            <p>Toggles automatic confirmation for file writes and shell execution. When enabled, Nio executes tool steps autonomously without waiting for individual [y/n] keystrokes.</p>
+            <pre><code class="language-bash">:approval</code></pre>
+          </div>
+
+          <div class="card" style="margin-bottom: 20px;">
+            <h3><code>:undo</code> — Revert Last File Edit</h3>
+            <p>Instantly rolls back the latest file change made by Nio using the transaction journal. Nio keeps an atomic backup of modified files so you can step backward at any time.</p>
+            <pre><code class="language-bash">:undo
+# Output: ⏪ Reverted src/lib.rs (2 remaining)</code></pre>
+          </div>
+
+          <div class="card" style="margin-bottom: 20px;">
+            <h3><code>:diff</code> — Review Git Modifications</h3>
+            <p>Inspects the active <code>git diff</code> (or <code>git diff --cached</code>) of all changes introduced across your project during the session.</p>
+            <pre><code class="language-bash">:diff</code></pre>
+          </div>
+
+          <div class="card" style="margin-bottom: 20px;">
+            <h3><code>:details</code> — Toggle File Edit Details</h3>
+            <p>Expands or collapses line-by-line diff views for the most recent file modification. You can also press <kbd>d</kbd> as a single-key shortcut.</p>
+            <pre><code class="language-bash">:details</code></pre>
+          </div>
+
+          <div class="card" style="margin-bottom: 20px;">
+            <h3><code>:continue</code> — Resume Unfinished Task</h3>
+            <p>Directs Nio to inspect recent progress, review modified files, and complete any remaining work left open from a prior turn.</p>
+            <pre><code class="language-bash">:continue</code></pre>
+          </div>
+
+          <div class="card" style="margin-bottom: 20px;">
+            <h3><code>:bash</code> — Direct Terminal Shell</h3>
+            <p>Temporarily switches your prompt into a direct shell terminal. Run commands like <code>cargo test</code>, <code>npm run build</code>, or <code>git status</code>. Type <code>:ai</code> to seamlessly return to Nio.</p>
+            <pre><code class="language-bash">:bash
+# Running in direct shell prompt:
+$ git status
+$ :ai
+# Returned to the Nio prompt.</code></pre>
+          </div>
+
+          <div class="card">
+            <h3><code>:stop</code> — Halt Active Execution</h3>
+            <p>Immediately interrupts generation or tool execution without clearing your queued messages or conversational context.</p>
+            <pre><code class="language-bash">:stop</code></pre>
+          </div>
+        </section>
+
+        <!-- MODELS & PROVIDERS -->
+        <section id="models" class="doc-section">
+          <div class="section-header">
+            <h2>Models, Providers &amp; Reasoning</h2>
+            <p>Configure model selection, routing through NioXS, upstream providers, and reasoning budgets.</p>
+          </div>
+
+          <div class="card" style="margin-bottom: 20px;">
+            <h3><code>:model</code> — Switch Active Model</h3>
+            <p>Opens a fuzzy-searchable interactive model picker. Select from bundled NioAtom (<code>nioxs::nio-atom</code>), Claude 3.7 Sonnet, GPT-4o, Gemini 2.0 Flash, DeepSeek R1, Groq, or local Ollama models.</p>
+            <pre><code class="language-bash">:model</code></pre>
+          </div>
+
+          <div class="card" style="margin-bottom: 20px;">
+            <h3><code>:provider</code> — Configure AI Gateways</h3>
+            <p>Add, test, and update upstream AI provider keys, custom base URLs, and endpoint routing. Supports NioXS, OpenAI, Anthropic, Google Gemini, DeepSeek, Groq, Ollama, OpenRouter, and custom OpenAI-compatible proxies.</p>
+            <pre><code class="language-bash">:provider</code></pre>
+          </div>
+
+          <div class="card">
+            <h3><code>:reasoning</code> — Set Thinking Effort</h3>
+            <p>Configures reasoning effort budgets for reasoning-capable models (NioAtom, o1, o3-mini, Gemini 2.0 Flash Thinking, DeepSeek R1). Options include <code>off</code>, <code>low</code>, <code>medium</code>, and <code>high</code>.</p>
+            <pre><code class="language-bash">:reasoning</code></pre>
+          </div>
+        </section>
+
+        <!-- QUEUES & SESSIONS -->
+        <section id="queue-sessions" class="doc-section">
+          <div class="section-header">
+            <h2>Queue Management &amp; Sessions</h2>
+            <p>Control message pipelining and persistent session histories across projects.</p>
+          </div>
+
+          <div class="card" style="margin-bottom: 20px;">
+            <h3><code>:queue</code> — Message Queue Pipeline</h3>
+            <p>While Nio is processing or executing long tool calls, you can queue subsequent tasks. Subcommands include:</p>
+            <ul>
+              <li><code>:queue</code> — Open interactive visual queue manager</li>
+              <li><code>:queue list</code> — Print queued items with status</li>
+              <li><code>:queue pause</code> / <code>:queue resume</code> — Pause or resume automated dispatch</li>
+              <li><code>:queue remove &lt;N&gt;</code> — Remove item #N from queue</li>
+              <li><code>:queue edit &lt;N&gt; &lt;text&gt;</code> — Edit text of item #N</li>
+              <li><code>:queue clear</code> — Discard all pending items</li>
+            </ul>
+            <pre><code class="language-bash">:queue list
+:queue pause
+:queue resume
+:queue clear</code></pre>
+          </div>
+
+          <div class="card" style="margin-bottom: 20px;">
+            <h3><code>:sessions</code> / <code>:history</code> — Switch Conversation Session</h3>
+            <p>Browse saved conversation histories with turn counts and timestamps. Resume an earlier task or branch into an alternative implementation.</p>
+            <pre><code class="language-bash">:sessions
+:history &lt;session-id&gt;</code></pre>
+          </div>
+
+          <div class="card" style="margin-bottom: 20px;">
+            <h3><code>:clear</code> — Clear Session Context</h3>
+            <p>Resets conversation history and purges terminal output while preserving project files and session backups.</p>
+            <pre><code class="language-bash">:clear</code></pre>
+          </div>
+
+          <div class="card">
+            <h3><code>:quit</code> — Safe Exit</h3>
+            <p>Safely saves conversation checkpoints, releases filesystem session locks, and exits back to your shell.</p>
+            <pre><code class="language-bash">:quit
+# Aliases: :q, :exit</code></pre>
+          </div>
+        </section>
+
+        <!-- EXTENSIBILITY -->
+        <section id="extensibility" class="doc-section">
+          <div class="section-header">
+            <h2>Extensibility, Personas &amp; Skills</h2>
+            <p>Custom rules, domain personas, custom prompt snippets, and OCR plugins.</p>
+          </div>
+
+          <div class="card" style="margin-bottom: 20px;">
+            <h3><code>:persona</code> — Assistant Persona &amp; Tone</h3>
+            <p>Configure role directives, name, and style rules:</p>
+            <pre><code class="language-bash">:persona menu             # Interactive persona selector
+:persona set "Rust Guru"  # Set active persona
+:persona list             # List configured personas
+:persona show             # Display active persona prompt
+:persona reset            # Reset to default persona</code></pre>
+          </div>
+
+          <div class="card" style="margin-bottom: 20px;">
+            <h3><code>:skills</code> — GitHub Skills Management</h3>
+            <p>Install and manage modular skills that supply specialized capabilities, domain rules, and workflows.</p>
+            <pre><code class="language-bash">:skills                   # Interactive skills browser
+:skills list              # List installed skills
+:skills add &lt;repo&gt;        # Install skill from GitHub
+:skills enable &lt;name&gt;     # Enable skill
+:skills disable &lt;name&gt;    # Disable skill</code></pre>
+          </div>
+
+          <div class="card" style="margin-bottom: 20px;">
+            <h3><code>:snippets</code> — Custom Prompts &amp; Snippets</h3>
+            <p>Manage reusable workflows and prompt templates stored in <code>.nio/snippets/</code> or <code>~/.config/nio/snippets/</code>.</p>
+            <pre><code class="language-bash">:snippets list
+:snippets run &lt;name&gt;
+:snippets add &lt;name&gt;</code></pre>
+          </div>
+
+          <div class="card">
+            <h3><code>:plugins</code> — OCR &amp; Format Readers</h3>
+            <p>Manage file readers and language packs for PDF OCR and non-text extraction.</p>
+            <pre><code class="language-bash">:plugins list
+:plugins install &lt;plugin&gt;
+:plugins languages pdf</code></pre>
+          </div>
+        </section>
+
+        <!-- SYSTEM & DAEMONS -->
+        <section id="system" class="doc-section">
+          <div class="section-header">
+            <h2>System, Daemons &amp; Environment</h2>
+            <p>Manage background services, settings panels, working directories, and online help.</p>
+          </div>
+
+          <div class="card" style="margin-bottom: 20px;">
+            <h3><code>:ide</code> — NioDE Server Daemon</h3>
+            <p>Controls the local NioDE background companion server for IDE and browser extensions.</p>
+            <pre><code class="language-bash">:ide status               # Check running status &amp; PID
+:ide start [--port 7460]  # Launch background daemon
+:ide stop                 # Stop background daemon
+:ide restart              # Restart server</code></pre>
+          </div>
+
+          <div class="card" style="margin-bottom: 20px;">
+            <h3><code>:setting</code> — Unified Configuration Panel</h3>
+            <p>Opens a complete interactive settings panel to adjust agent modes, reasoning budgets, auto-approval flags, sound alerts, and editor integrations.</p>
+            <pre><code class="language-bash">:setting
+# Alias: :settings</code></pre>
+          </div>
+
+          <div class="card" style="margin-bottom: 20px;">
+            <h3><code>:path</code> — Working Directory Info</h3>
+            <p>Displays the current project root directory, trust state, and git branch.</p>
+            <pre><code class="language-bash">:path
+# Alias: :workingpath</code></pre>
+          </div>
+
+          <div class="card">
+            <h3><code>:help</code> — Interactive Help Menu</h3>
+            <p>Renders an inline interactive navigation menu listing every available command with description.</p>
+            <pre><code class="language-bash">:help</code></pre>
+          </div>
+        </section>
+
+        <!-- CHEAT SHEET TABLE -->
+        <section id="cheat-sheet" class="doc-section">
+          <div class="section-header">
+            <h2>Command Quick Reference</h2>
+            <p>All 24 commands at a glance with descriptions and key aliases.</p>
+          </div>
+
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Command</th>
+                <th>Aliases</th>
+                <th>Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>:approval</code></td>
+                <td>—</td>
+                <td>Toggle automatic approval for writes and commands</td>
+              </tr>
+              <tr>
+                <td><code>:bash</code></td>
+                <td><code>:command</code></td>
+                <td>Switch to direct shell prompt; <code>:ai</code> returns</td>
+              </tr>
+              <tr>
+                <td><code>:clear</code></td>
+                <td>—</td>
+                <td>Clear conversation history and terminal screen</td>
+              </tr>
+              <tr>
+                <td><code>:continue</code></td>
+                <td>—</td>
+                <td>Continue the unfinished task in this session</td>
+              </tr>
+              <tr>
+                <td><code>:details</code></td>
+                <td><kbd>d</kbd></td>
+                <td>Expand latest file edit diff view; toggles details</td>
+              </tr>
+              <tr>
+                <td><code>:diff</code></td>
+                <td>—</td>
+                <td>Show git diff of session modifications</td>
+              </tr>
+              <tr>
+                <td><code>:help</code></td>
+                <td>—</td>
+                <td>Show interactive available commands menu</td>
+              </tr>
+              <tr>
+                <td><code>:history</code></td>
+                <td><code>:sessions</code></td>
+                <td>Switch to a saved conversation session</td>
+              </tr>
+              <tr>
+                <td><code>:ide</code></td>
+                <td>—</td>
+                <td>Manage NioDE server daemon (status, start, stop)</td>
+              </tr>
+              <tr>
+                <td><code>:model</code></td>
+                <td>—</td>
+                <td>Switch the active model via fuzzy selector</td>
+              </tr>
+              <tr>
+                <td><code>:mode</code></td>
+                <td>—</td>
+                <td>Choose Ask, Plan, or Build operational mode</td>
+              </tr>
+              <tr>
+                <td><code>:path</code></td>
+                <td><code>:workingpath</code></td>
+                <td>Show current project root directory and trust state</td>
+              </tr>
+              <tr>
+                <td><code>:persona</code></td>
+                <td>—</td>
+                <td>Configure assistant persona, name, and instructions</td>
+              </tr>
+              <tr>
+                <td><code>:plugins</code></td>
+                <td>—</td>
+                <td>Manage optional file readers and PDF OCR languages</td>
+              </tr>
+              <tr>
+                <td><code>:provider</code></td>
+                <td>—</td>
+                <td>Configure model providers, keys, and base URLs</td>
+              </tr>
+              <tr>
+                <td><code>:queue</code></td>
+                <td>—</td>
+                <td>List, edit, remove, clear, pause, or resume pending messages</td>
+              </tr>
+              <tr>
+                <td><code>:quit</code></td>
+                <td><code>:q</code>, <code>:exit</code></td>
+                <td>Safely release locks and exit Nio</td>
+              </tr>
+              <tr>
+                <td><code>:reasoning</code></td>
+                <td>—</td>
+                <td>Set reasoning effort budget (off, low, medium, high)</td>
+              </tr>
+              <tr>
+                <td><code>:sessions</code></td>
+                <td><code>:history</code></td>
+                <td>Switch to a saved session or inspect past runs</td>
+              </tr>
+              <tr>
+                <td><code>:setting</code></td>
+                <td><code>:settings</code></td>
+                <td>Configure modes, reasoning, approvals, and themes</td>
+              </tr>
+              <tr>
+                <td><code>:skills</code></td>
+                <td>—</td>
+                <td>List, add, remove, enable, or disable GitHub skills</td>
+              </tr>
+              <tr>
+                <td><code>:snippets</code></td>
+                <td>—</td>
+                <td>Manage and run custom prompt snippets and functions</td>
+              </tr>
+              <tr>
+                <td><code>:stop</code></td>
+                <td>—</td>
+                <td>Stop current response; preserve pending queued messages</td>
+              </tr>
+              <tr>
+                <td><code>:undo</code></td>
+                <td>—</td>
+                <td>Revert last file change made by Nio using backup journal</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-powershell.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -44,22 +44,23 @@
       <nav class="sidebar-nav" aria-label="Documentation">
         <div class="nav-section">
           <div class="nav-section-title">Getting Started</div>
-          <a href="#overview" class="nav-link active">1. Overview</a>
-          <a href="#quickstart" class="nav-link">2. Quickstart</a>
-          <a href="#bundled-xs" class="nav-link">3. Bundled NioXS &amp; NioAtom</a>
-          <a href="#modes" class="nav-link">4. Agent Modes</a>
+          <a href="#overview" class="nav-link active">Overview</a>
+          <a href="#quickstart" class="nav-link">Quickstart</a>
+          <a href="#bundled-xs" class="nav-link">Bundled NioXS &amp; NioAtom</a>
+          <a href="#modes" class="nav-link">Agent Modes</a>
         </div>
         <div class="nav-section">
           <div class="nav-section-title">Core Architecture</div>
-          <a href="#tools" class="nav-link">5. Tools &amp; MCP Protocol</a>
-          <a href="#personalization" class="nav-link">6. Personalization &amp; Memory</a>
-          <a href="#providers" class="nav-link">7. Providers &amp; Fallbacks</a>
-          <a href="#security" class="nav-link">8. Security &amp; Safety</a>
+          <a href="#tools" class="nav-link">Tools &amp; MCP Protocol</a>
+          <a href="#personalization" class="nav-link">Personalization &amp; Memory</a>
+          <a href="#providers" class="nav-link">Providers &amp; Fallbacks</a>
+          <a href="#security" class="nav-link">Security &amp; Safety</a>
         </div>
         <div class="nav-section">
           <div class="nav-section-title">Reference</div>
-          <a href="#cli" class="nav-link">9. CLI Commands</a>
-          <a href="#faq" class="nav-link">10. FAQ</a>
+          <a href="#cli" class="nav-link">CLI Commands</a>
+          <a href="commands.html" class="nav-link">Interactive : Commands</a>
+          <a href="#faq" class="nav-link">FAQ</a>
         </div>
       </nav>
       <div class="sidebar-footer">
@@ -115,48 +116,46 @@
           </div>
         </section>
 
-        <!-- 2. QUICKSTART -->
+        <!-- QUICKSTART -->
         <section id="quickstart" class="doc-section">
           <div class="section-header">
-            <span class="section-step">Step 2</span>
             <h2>Quickstart</h2>
             <p>Get up and running in seconds using your package manager of choice.</p>
           </div>
 
-          <div class="tab-box">
-            <div class="tab-header">
-              <button class="tab-btn active" data-tab="npx">npx (Instant)</button>
-              <button class="tab-btn" data-tab="curl">Linux &amp; macOS</button>
-              <button class="tab-btn" data-tab="ps">Windows</button>
-              <button class="tab-btn" data-tab="cargo">Cargo</button>
+          <div class="tabs-container">
+            <div class="tabs-nav">
+              <button class="tab-btn active" type="button" data-tab="npx">npx (Instant)</button>
+              <button class="tab-btn" type="button" data-tab="curl">Linux &amp; macOS</button>
+              <button class="tab-btn" type="button" data-tab="ps">Windows</button>
+              <button class="tab-btn" type="button" data-tab="cargo">Cargo</button>
             </div>
-            <div class="tab-pane active" id="pane-npx">
+            <div class="tab-panel active" id="pane-npx">
               <p>Run directly without installation via npm/npx:</p>
               <pre><code class="language-bash">npx @nio-labs/nio-ai</code></pre>
               <p>Or install globally to have the <code>nio</code> command available anywhere:</p>
               <pre><code class="language-bash">npm install -g @nio-labs/nio-ai
 nio "Explain project architecture"</code></pre>
             </div>
-            <div class="tab-pane" id="pane-curl">
+            <div class="tab-panel" id="pane-curl">
               <p>Native standalone binary installation via shell script:</p>
               <pre><code class="language-bash">curl -fsSL https://raw.githubusercontent.com/nio-labs/nio/main/install.sh | sh</code></pre>
               <p>This automatically downloads the pre-built native binary for Linux (x86_64, aarch64, musl, Termux) or macOS (Intel, Apple Silicon) and bundles the NioXS companion gateway.</p>
             </div>
-            <div class="tab-pane" id="pane-ps">
+            <div class="tab-panel" id="pane-ps">
               <p>Install on Windows via PowerShell:</p>
               <pre><code class="language-powershell">irm https://raw.githubusercontent.com/nio-labs/nio/main/install.ps1 | iex</code></pre>
             </div>
-            <div class="tab-pane" id="pane-cargo">
+            <div class="tab-panel" id="pane-cargo">
               <p>Build from source with Cargo:</p>
               <pre><code class="language-bash">cargo install --locked --git https://github.com/nio-labs/nio.git</code></pre>
             </div>
           </div>
         </section>
 
-        <!-- 3. BUNDLED NIOXS & NIOATOM -->
+        <!-- BUNDLED NIOXS & NIOATOM -->
         <section id="bundled-xs" class="doc-section">
           <div class="section-header">
-            <span class="section-step">Step 3</span>
             <h2>Bundled NioXS &amp; NioAtom</h2>
             <p>NioAI and NioXS work as a unified pairing. NioAI is your interactive terminal agent, while NioXS serves as the intelligent companion gateway.</p>
           </div>
@@ -199,10 +198,9 @@ nio "Explain project architecture"</code></pre>
           </table>
         </section>
 
-        <!-- 4. AGENT MODES -->
+        <!-- AGENT MODES -->
         <section id="modes" class="doc-section">
           <div class="section-header">
-            <span class="section-step">Step 4</span>
             <h2>Agent Modes</h2>
             <p>Tailor NioAI's permissions and tool accessibility to your workflow.</p>
           </div>
@@ -223,10 +221,9 @@ nio "Explain project architecture"</code></pre>
           </div>
         </section>
 
-        <!-- 5. TOOLS & MCP -->
+        <!-- TOOLS & MCP -->
         <section id="tools" class="doc-section">
           <div class="section-header">
-            <span class="section-step">Step 5</span>
             <h2>Tools &amp; MCP Protocol</h2>
             <p>Standardized, secure tool execution adhering to the Model Context Protocol.</p>
           </div>
@@ -238,10 +235,9 @@ nio mcp list
 nio plugins install &lt;plugin-id&gt;</code></pre>
         </section>
 
-        <!-- 6. PERSONALIZATION -->
+        <!-- PERSONALIZATION -->
         <section id="personalization" class="doc-section">
           <div class="section-header">
-            <span class="section-step">Step 6</span>
             <h2>Personalization &amp; Memory</h2>
             <p>NioAI adapts to your project coding style, preferred libraries, and workflows over time.</p>
           </div>
@@ -253,10 +249,9 @@ nio plugins install &lt;plugin-id&gt;</code></pre>
           </div>
         </section>
 
-        <!-- 7. PROVIDERS & FALLBACKS -->
+        <!-- PROVIDERS & FALLBACKS -->
         <section id="providers" class="doc-section">
           <div class="section-header">
-            <span class="section-step">Step 7</span>
             <h2>Providers &amp; Fallbacks</h2>
             <p>Fault-tolerant architecture guarantees continuous coding even during network dropouts or rate limits.</p>
           </div>
@@ -274,10 +269,9 @@ nio plugins install &lt;plugin-id&gt;</code></pre>
           </div>
         </section>
 
-        <!-- 8. SECURITY -->
+        <!-- SECURITY -->
         <section id="security" class="doc-section">
           <div class="section-header">
-            <span class="section-step">Step 8</span>
             <h2>Security &amp; Safety</h2>
             <p>Engineered for enterprise trust and developer safety.</p>
           </div>
@@ -289,10 +283,9 @@ nio plugins install &lt;plugin-id&gt;</code></pre>
           </ul>
         </section>
 
-        <!-- 9. CLI COMMANDS -->
+        <!-- CLI COMMANDS -->
         <section id="cli" class="doc-section">
           <div class="section-header">
-            <span class="section-step">Step 9</span>
             <h2>CLI Commands</h2>
             <p>Quick reference for NioAI terminal subcommands.</p>
           </div>
@@ -331,12 +324,16 @@ nio plugins install &lt;plugin-id&gt;</code></pre>
               </tr>
             </tbody>
           </table>
+
+          <div class="card" style="margin-top: 20px; border-left: 4px solid var(--accent-color);">
+            <h3>Looking for REPL &amp; Interactive Mode Commands?</h3>
+            <p>During an active coding session in the terminal, type <code>:</code> to access the interactive command palette. All 24 commands, shortcuts, and switches are detailed in the <a href="commands.html" style="color: var(--accent-color); font-weight: 600;">Interactive : Commands Guide →</a>.</p>
+          </div>
         </section>
 
-        <!-- 10. FAQ -->
+        <!-- FAQ -->
         <section id="faq" class="doc-section">
           <div class="section-header">
-            <span class="section-step">Step 10</span>
             <h2>FAQ</h2>
           </div>
 

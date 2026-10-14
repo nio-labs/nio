@@ -351,6 +351,7 @@ impl Live {
             lines.push(clip_terminal_text(&self.pending, width.saturating_sub(1)));
         }
         if !self.response_started || self.thinking {
+            lines.push(String::new());
             let frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
             let frame =
                 frames[(self.status_started.elapsed().as_millis() / 80) as usize % frames.len()];
@@ -742,6 +743,7 @@ pub async fn run(
     model: &str,
     prompt: &str,
     history: &mut Vec<Value>,
+    resume: bool,
 ) -> Result<Vec<String>, String> {
     let started = Instant::now();
     let mut options = options.clone();
@@ -761,7 +763,8 @@ pub async fn run(
         tui::configure_worker(sender.clone(), approvals, answers, cancelled);
         let result = match tokio::runtime::Runtime::new() {
             Ok(runtime) => runtime.block_on(async {
-                run_agent_turn(&options, &model, &prompt, &mut saved_history).await?;
+                run_agent_turn_with_resume(&options, &model, &prompt, &mut saved_history, resume)
+                    .await?;
                 if followups {
                     Ok(generate_followup_suggestions(&options, &model, &saved_history).await)
                 } else {

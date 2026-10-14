@@ -5487,6 +5487,16 @@ async fn run_agent_turn(
     prompt: &str,
     history: &mut Vec<Value>,
 ) -> Result<Vec<String>, String> {
+    run_agent_turn_with_resume(options, model, prompt, history, false).await
+}
+
+async fn run_agent_turn_with_resume(
+    options: &Options,
+    model: &str,
+    prompt: &str,
+    history: &mut Vec<Value>,
+    resume: bool,
+) -> Result<Vec<String>, String> {
     let mut current_model = model.to_string();
     let initial_history = history.clone();
     loop {
@@ -5502,6 +5512,7 @@ async fn run_agent_turn(
                     prompt,
                     &mut turn_history,
                     &mut interrupt,
+                    resume,
                 )
                 .await?;
                 if options.json_output
@@ -5827,12 +5838,70 @@ async fn wait_for_interrupt(cancelled: Arc<AtomicBool>) {
     }
 }
 
+// A resumed transport request keeps the original user message and completed
+// tool receipts, so the provider can continue the same turn rather than start over.
+fn append_turn_user_messages(
+    messages: &mut Vec<Value>,
+    history: &mut Vec<Value>,
+    history_user: &Value,
+    request_user: &Value,
+    resume: bool,
+) -> Result<(), String> {
+    if resume {
+        let user = messages
+            .iter_mut()
+            .rev()
+            .find(|message| message["role"] == "user")
+            .ok_or("No failed user turn is available to retry.")?;
+        if request_user["content"].is_array() {
+            *user = request_user.clone();
+        }
+    } else {
+        messages.push(request_user.clone());
+        history.push(history_user.clone());
+    }
+    Ok(())
+}
+
+fn failed_turn_started(before: &[Value], after: &[Value]) -> bool {
+    let before_user = before.iter().rposition(|m| m["role"] == "user");
+    let after_user = after.iter().rposition(|m| m["role"] == "user");
+    after_user.is_some()
+        && (before_user != after_user
+            || before_user.is_some_and(|i| Some(&before[i]) != after_user.map(|j| &after[j])))
+}
+
+fn retry_choice(selected: Option<usize>) -> bool {
+    selected == Some(0)
+}
+
+fn ask_retry_failed_request() -> Result<bool, String> {
+    let choices = [
+        (
+            "Yes",
+            "Retry this request using saved progress and completed tool results",
+            false,
+        ),
+        (
+            "No",
+            "Return to the prompt; preserve pending messages",
+            true,
+        ),
+    ];
+    Ok(retry_choice(select_menu_option_b(
+        "Retry this request?",
+        &choices,
+        1,
+    )?))
+}
+
 async fn run_agent_turn_inner(
     options: &Options,
     model: &str,
     prompt: &str,
     history: &mut Vec<Value>,
     interrupt: &mut EscapeInterrupt,
+    resume: bool,
 ) -> Result<(), String> {
     let (gateway, model_id) = split_model_selector(model)?;
     let (base_url, key) = resolve_model_provider(options, gateway, model_id)?;
@@ -6149,8 +6218,13 @@ async fn run_agent_turn_inner(
     } else {
         json!({"role":"user", "content":request_content})
     };
-    messages.push(request_user_message.clone());
-    history.push(history_user_message.clone());
+    append_turn_user_messages(
+        &mut messages,
+        history,
+        &history_user_message,
+        &request_user_message,
+        resume,
+    )?;
 
     let url = endpoint(&base_url, "chat/completions");
     let request_interval = load_user_config()?
@@ -7658,11 +7732,19 @@ async fn interactive(mut options: Options) -> Result<(), String> {
             input
         };
         let snapshot_history = history.clone();
+        let mut resume_failed_turn = false;
         loop {
             let outcome = if io::stdin().is_terminal() && io::stdout().is_terminal() {
-                inline_queue::run(&options, &model, prompt, &mut history).await
+                inline_queue::run(&options, &model, prompt, &mut history, resume_failed_turn).await
             } else {
-                run_agent_turn(&options, &model, prompt, &mut history).await
+                run_agent_turn_with_resume(
+                    &options,
+                    &model,
+                    prompt,
+                    &mut history,
+                    resume_failed_turn,
+                )
+                .await
             };
             save_session_history(Some(&session_id), &root, &history, options.project_trusted)?;
             match outcome {
@@ -7680,68 +7762,18 @@ async fn interactive(mut options: Options) -> Result<(), String> {
                     );
                     break;
                 }
-                Err(error) if is_provider_unreachable_error(&error) => {
-                    eprintln!(
-                        "\n⚠️  Provider is unreachable or temporarily unavailable: {error}\n"
-                    );
-                    if io::stdin().is_terminal() && io::stdout().is_terminal() {
-                        let fallback_choices = [
-                            (
-                                "Select a provider (:provider)",
-                                "Switch to an alternative LLM provider",
-                                true,
-                            ),
-                            (
-                                "Retry connection",
-                                "Try sending the request again with the current provider",
-                                false,
-                            ),
-                        ];
-                        match select_menu_option_b("Provider Unavailable", &fallback_choices, 0) {
-                            Ok(Some(0)) => {
-                                history = snapshot_history.clone();
-                                if let Err(err) = configure_provider().await {
-                                    eprintln!("nio: {err}");
-                                } else {
-                                    if let Ok(Some(new_model)) =
-                                        select_and_save_model(&options).await
-                                    {
-                                        model = new_model.clone();
-                                        options.model = Some(new_model);
-                                    } else if let Ok(new_model) = chosen_model(&options).await {
-                                        model = new_model.clone();
-                                        options.model = Some(new_model);
-                                    }
-                                    println!("Using model {model}. Retrying request...");
-                                }
-                                continue;
-                            }
-                            Ok(Some(1)) => {
-                                history = snapshot_history.clone();
-                                println!("Retrying connection...");
-                                continue;
-                            }
-                            _ => {
-                                QUEUE_PAUSED.store(true, Ordering::SeqCst);
-                                eprintln!(
-                                    "Request cancelled. Queue paused; use :queue resume to continue."
-                                );
-                                break;
-                            }
-                        }
-                    } else {
-                        QUEUE_PAUSED.store(true, Ordering::SeqCst);
-                        eprintln!(
-                            "nio: {error}. Queue paused; use :queue resume after resolving the error."
-                        );
-                        break;
-                    }
-                }
                 Err(error) => {
+                    eprintln!("\nnio: {error}");
+                    if io::stdin().is_terminal()
+                        && io::stdout().is_terminal()
+                        && ask_retry_failed_request()?
+                    {
+                        resume_failed_turn = failed_turn_started(&snapshot_history, &history);
+                        QUEUE_PAUSED.store(false, Ordering::SeqCst);
+                        println!("Retrying request...");
+                        continue;
+                    }
                     QUEUE_PAUSED.store(true, Ordering::SeqCst);
-                    eprintln!(
-                        "nio: {error}. Queue paused; use :queue resume after resolving the error."
-                    );
                     break;
                 }
             }
@@ -13582,5 +13614,46 @@ mod provider_failover_tests {
             "Prompt is too long for context"
         ));
         assert!(!is_provider_unreachable_error("user denied command"));
+    }
+}
+
+#[cfg(test)]
+mod failed_request_retry_tests {
+    use super::*;
+    #[test]
+    fn retry_only_runs_for_explicit_yes() {
+        assert!(retry_choice(Some(0)));
+        assert!(!retry_choice(Some(1)));
+        assert!(!retry_choice(None));
+    }
+    #[test]
+    fn resumed_request_preserves_user_and_completed_tool_receipts() {
+        let mut history = vec![
+            json!({"role":"user","content":"Fix README.md"}),
+            json!({"role":"assistant","tool_calls":[{"id":"done","function":{"name":"edit_file"}}]}),
+            json!({"role":"tool","tool_call_id":"done","content":"Edited README.md"}),
+        ];
+        let saved = history.clone();
+        let mut messages = vec![json!({"role":"system","content":"system"})];
+        messages.extend(history.clone());
+        let user = json!({"role":"user","content":"Fix README.md"});
+        append_turn_user_messages(&mut messages, &mut history, &user, &user, true).unwrap();
+        assert_eq!(history, saved);
+        assert_eq!(messages.iter().filter(|m| m["role"] == "user").count(), 1);
+        assert_eq!(messages.last().unwrap()["tool_call_id"], "done");
+    }
+    #[test]
+    fn fresh_retry_without_started_turn_appends_the_original_request() {
+        let mut history = Vec::new();
+        let mut messages = Vec::new();
+        let user = json!({"role":"user","content":"Hello"});
+        assert!(!failed_turn_started(&history, &history));
+        append_turn_user_messages(&mut messages, &mut history, &user, &user, false).unwrap();
+        assert!(failed_turn_started(&[], &history));
+        assert_eq!(history, vec![user]);
+        assert!(
+            append_turn_user_messages(&mut vec![], &mut vec![], &json!({}), &json!({}), true)
+                .is_err()
+        );
     }
 }
