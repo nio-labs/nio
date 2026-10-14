@@ -1,7 +1,7 @@
 {
   "name": "@nio-labs/nio-ai",
-  "version": "0.3.8",
-  "description": "NioAI \u2014 A lightweight AI coding agent for the terminal",
+  "version": "0.3.9",
+  "description": "NioAI — A lightweight AI coding agent for the terminal",
   "main": "bin/nio.js",
   "bin": {
     "nio-ai": "bin/nio.js",
@@ -10,7 +10,7 @@
     "nioxs": "bin/nioxs.js"
   },
   "dependencies": {
-    "@nio-labs/nio-xs": "^0.4.3"
+    "@nio-labs/nio-xs": "^0.4.4"
   },
   "scripts": {
     "start": "node ./bin/nio.js",

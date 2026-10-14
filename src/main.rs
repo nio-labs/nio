@@ -46,8 +46,9 @@ use unicode_width::UnicodeWidthStr;
 const KILO_BASE_URL: &str = "https://api.kilo.ai/api/gateway";
 const OPENROUTER_BASE_URL: &str = "https://openrouter.ai/api/v1";
 const NIOXS_BASE_URL: &str = "http://127.0.0.1:7460/v1";
-const DEFAULT_MODEL_SELECTOR: &str = "kilo::openrouter/free";
-const DEFAULT_MODEL_FALLBACKS: [&str; 4] = [
+const DEFAULT_MODEL_SELECTOR: &str = "nioxs::nio-atom";
+const DEFAULT_MODEL_FALLBACKS: [&str; 5] = [
+    "nioxs::nio-atom",
     "kilo::openrouter/free",
     "kilo::cohere/north-mini-code:free",
     "kilo::stepfun/step-5-preview-free",
@@ -1095,7 +1096,7 @@ fn confirm_project_trust(options: &Options) -> Result<bool, String> {
     }
 }
 
-fn run_nioxs_gateway(options: &Options) -> Result<(), CliError> {
+fn find_nioxs_binary() -> Option<PathBuf> {
     let binary_name = if cfg!(windows) { "nioxs.exe" } else { "nioxs" };
 
     // 1. Check adjacent to current exe
@@ -1126,9 +1127,60 @@ fn run_nioxs_gateway(options: &Options) -> Result<(), CliError> {
             .find(|p| p.is_file())
     });
 
-    let found_binary = adjacent.or(cached).or(local_bin).or(path_bin);
+    adjacent.or(cached).or(local_bin).or(path_bin)
+}
 
-    if let Some(bin) = found_binary {
+fn is_nioxs_responsive(port: u16) -> bool {
+    use std::net::{SocketAddr, TcpStream};
+    let addr = SocketAddr::from(([127, 0, 0, 1], port));
+    TcpStream::connect_timeout(&addr, Duration::from_millis(150)).is_ok()
+}
+
+fn ensure_nioxs_gateway() {
+    if is_nioxs_responsive(7460) {
+        return;
+    }
+    let found_binary = find_nioxs_binary();
+    let spawned = if let Some(bin) = found_binary {
+        std::process::Command::new(bin)
+            .arg("serve")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .is_ok()
+    } else {
+        let npx = if cfg!(windows) { "npx.cmd" } else { "npx" };
+        let npx_exists = std::env::var_os("PATH").is_some_and(|paths| {
+            std::env::split_paths(&paths)
+                .map(|p| p.join(npx))
+                .any(|p| p.is_file())
+        });
+        if npx_exists {
+            std::process::Command::new(npx)
+                .args(["@nio-labs/nio-xs", "serve"])
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+                .is_ok()
+        } else {
+            false
+        }
+    };
+
+    if spawned {
+        for _ in 0..25 {
+            std::thread::sleep(Duration::from_millis(100));
+            if is_nioxs_responsive(7460) {
+                break;
+            }
+        }
+    }
+}
+
+fn run_nioxs_gateway(options: &Options) -> Result<(), CliError> {
+    if let Some(bin) = find_nioxs_binary() {
         let mut cmd = std::process::Command::new(bin);
         cmd.args(&options.prompt);
         let status = cmd
@@ -1140,7 +1192,7 @@ fn run_nioxs_gateway(options: &Options) -> Result<(), CliError> {
         return Ok(());
     }
 
-    // 5. Fallback: launch via npx @nio-labs/nio-xs
+    // Fallback: launch via npx @nio-labs/nio-xs
     let npx = if cfg!(windows) { "npx.cmd" } else { "npx" };
     let npx_exists = std::env::var_os("PATH").is_some_and(|paths| {
         std::env::split_paths(&paths)
@@ -5437,6 +5489,8 @@ async fn run_agent_turn(
 fn next_default_fallback_model(current_model: &str) -> Option<&'static str> {
     let normalized = if current_model.contains("::") {
         current_model
+    } else if current_model == "nio-atom" || current_model == "atom" {
+        "nioxs::nio-atom"
     } else if current_model.starts_with("openrouter/") {
         "kilo::openrouter/free"
     } else if current_model.starts_with("cohere/") {
@@ -5500,6 +5554,9 @@ async fn request_followup_suggestions(
 ) -> Result<Vec<String>, String> {
     let (gateway, model_id) = split_model_selector(model)?;
     let (base_url, key) = resolve_model_provider(options, gateway, model_id)?;
+    if base_url.contains(":7460") || gateway == Some("nioxs") || model_id == "nio-atom" {
+        ensure_nioxs_gateway();
+    }
     let persona_section = persona::format_persona_prompt(&load_user_config()?.persona).1;
 
     let mut context = history
@@ -5717,6 +5774,9 @@ async fn run_agent_turn_inner(
 ) -> Result<(), String> {
     let (gateway, model_id) = split_model_selector(model)?;
     let (base_url, key) = resolve_model_provider(options, gateway, model_id)?;
+    if base_url.contains(":7460") || gateway == Some("nioxs") || model_id == "nio-atom" {
+        ensure_nioxs_gateway();
+    }
     let client = build_http_client()?;
 
     let root = options.workdir.as_deref().unwrap_or(Path::new("."));
@@ -6933,6 +6993,14 @@ mod default_provider_tests {
     #[test]
     fn default_model_fallback_chain_order() {
         assert_eq!(
+            next_default_fallback_model("nioxs::nio-atom"),
+            Some("kilo::openrouter/free")
+        );
+        assert_eq!(
+            next_default_fallback_model("nio-atom"),
+            Some("kilo::openrouter/free")
+        );
+        assert_eq!(
             next_default_fallback_model("kilo::openrouter/free"),
             Some("kilo::cohere/north-mini-code:free")
         );
@@ -6951,11 +7019,13 @@ mod default_provider_tests {
 
     #[test]
     fn model_priority_rank_ranks_openrouter_mini_code_stepfun_and_auto_free_first() {
-        assert_eq!(model_priority_rank("openrouter/free"), 0);
-        assert_eq!(model_priority_rank("cohere/north-mini-code:free"), 1);
-        assert_eq!(model_priority_rank("stepfun/step-5-preview-free"), 2);
-        assert_eq!(model_priority_rank("kilo-auto/free"), 3);
-        assert_eq!(model_priority_rank("other-model"), 4);
+        assert_eq!(model_priority_rank("nioxs::nio-atom"), 0);
+        assert_eq!(model_priority_rank("nio-atom"), 0);
+        assert_eq!(model_priority_rank("openrouter/free"), 1);
+        assert_eq!(model_priority_rank("cohere/north-mini-code:free"), 2);
+        assert_eq!(model_priority_rank("stepfun/step-5-preview-free"), 3);
+        assert_eq!(model_priority_rank("kilo-auto/free"), 4);
+        assert_eq!(model_priority_rank("other-model"), 5);
     }
 }
 
@@ -6976,6 +7046,9 @@ async fn fetch_model_choices(options: &Options) -> Result<Vec<ModelChoice>, Stri
         });
     }
     for provider in providers {
+        if provider.id == "nioxs" && provider.base_url.contains(":7460") {
+            ensure_nioxs_gateway();
+        }
         let key = model_api_key(options, &provider.id).or(provider.api_key.clone());
         match fetch_models(&client, &provider.base_url, key.as_deref()).await {
             Ok(catalog) => choices.extend(choices_from_catalog(
@@ -7009,16 +7082,18 @@ async fn fetch_model_choices(options: &Options) -> Result<Vec<ModelChoice>, Stri
 }
 
 fn model_priority_rank(id: &str) -> usize {
-    if id == "openrouter/free" || id == "kilo::openrouter/free" {
+    if id == "nio-atom" || id == "nioxs::nio-atom" {
         0
-    } else if id == "cohere/north-mini-code:free" || id == "kilo::cohere/north-mini-code:free" {
+    } else if id == "openrouter/free" || id == "kilo::openrouter/free" {
         1
-    } else if id == "stepfun/step-5-preview-free" || id == "kilo::stepfun/step-5-preview-free" {
+    } else if id == "cohere/north-mini-code:free" || id == "kilo::cohere/north-mini-code:free" {
         2
-    } else if id == "kilo-auto/free" || id == "kilo::kilo-auto/free" {
+    } else if id == "stepfun/step-5-preview-free" || id == "kilo::stepfun/step-5-preview-free" {
         3
-    } else {
+    } else if id == "kilo-auto/free" || id == "kilo::kilo-auto/free" {
         4
+    } else {
+        5
     }
 }
 
@@ -7164,6 +7239,9 @@ async fn interactive(mut options: Options) -> Result<(), String> {
         .clone()
         .unwrap_or_else(generate_session_id);
     let mut model = chosen_model(&options).await?;
+    if model.starts_with("nioxs::") || model == "nio-atom" {
+        ensure_nioxs_gateway();
+    }
     let root = session_root(&options)?;
     let mut _session_lock = lock_session(&session_id)?;
     let mut history = load_session_history(Some(&session_id), &root, options.project_trusted)?;

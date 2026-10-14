@@ -171,6 +171,36 @@ async function ensureBinary() {
   return targetBinPath;
 }
 
+function isPortOpen(port = 7460) {
+  return new Promise((resolve) => {
+    const net = require('net');
+    const sock = new net.Socket();
+    sock.setTimeout(150);
+    sock.on('connect', () => { sock.destroy(); resolve(true); });
+    sock.on('timeout', () => { sock.destroy(); resolve(false); });
+    sock.on('error', () => { resolve(false); });
+    sock.connect(port, '127.0.0.1');
+  });
+}
+
+async function ensureNioXsRunning() {
+  if (await isPortOpen(7460)) return;
+  const nioxsRunner = path.join(__dirname, 'nioxs.js');
+  if (fs.existsSync(nioxsRunner)) {
+    try {
+      const child = spawn(process.execPath, [nioxsRunner, 'serve'], {
+        detached: true,
+        stdio: 'ignore'
+      });
+      child.unref();
+      for (let i = 0; i < 20; i++) {
+        await new Promise((r) => setTimeout(r, 100));
+        if (await isPortOpen(7460)) break;
+      }
+    } catch {}
+  }
+}
+
 async function main() {
   try {
     const args = process.argv.slice(2);
@@ -197,6 +227,10 @@ async function main() {
         process.exit(1);
       });
       return;
+    }
+
+    if (args.length === 0 || !['--help', '-h', '--version', '-V', 'doctor'].includes(args[0])) {
+      await ensureNioXsRunning();
     }
 
     const binPath = await ensureBinary();
@@ -238,4 +272,4 @@ async function main() {
 }
 
 if (require.main === module) main();
-module.exports = { ensureBinary, checksumFor, binaryMatchesVersion, binaryCachePath, downloadArchive, streamToString, fetchWithRedirects };
+module.exports = { ensureBinary, checksumFor, binaryMatchesVersion, binaryCachePath, downloadArchive, streamToString, fetchWithRedirects, isPortOpen, ensureNioXsRunning };

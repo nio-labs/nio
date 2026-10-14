@@ -55,7 +55,7 @@ Start the interactive agent:
 nio
 ```
 
-On first launch, Nio defaults to Kilo Gateway with free model fallback (`kilo::openrouter/free` -> `kilo::cohere/north-mini-code:free` -> `kilo::stepfun/step-5-preview-free` -> `kilo::kilo-auto/free`). NioXS is available as a PoC provider (`http://127.0.0.1:7460/v1`). Use `nio models` to browse providers and save another model; saved model choices and explicit overrides take precedence over the application default.
+On first launch, Nio defaults to NioAtom (`nioxs::nio-atom`) backed by the auto-spawned bundled NioXS companion gateway (`http://127.0.0.1:7460/v1`), with automatic fallback (`kilo::openrouter/free` -> `kilo::cohere/north-mini-code:free` -> `kilo::stepfun/step-5-preview-free` -> `kilo::kilo-auto/free`). NioXS is pre-bundled and launched automatically. Use `nio models` to browse providers and save another model; saved model choices and explicit overrides take precedence over the application default.
 
 Override the model for a one-shot query:
 

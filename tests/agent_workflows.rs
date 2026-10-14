@@ -378,7 +378,7 @@ fn nioxs_provider_preserves_model_id_and_executes_client_tools() {
 #[test]
 fn kilo_is_the_default_and_saved_or_explicit_models_take_precedence() {
     for (saved, explicit, expected) in [
-        (None, None, "openrouter/free"),
+        (None, None, "nio-atom"),
         (Some("kilo::saved-model"), None, "saved-model"),
         (
             Some("kilo::saved-model"),
@@ -393,7 +393,10 @@ fn kilo_is_the_default_and_saved_or_explicit_models_take_precedence() {
             json!({
                 "request_interval_seconds":0,
                 "default_model":saved,
-                "providers":[{"id":"kilo","name":"Kilo Gateway","base_url":provider.url}]
+                "providers":[
+                    {"id":"kilo","name":"Kilo Gateway","base_url":provider.url},
+                    {"id":"nioxs","name":"NioXS Gateway","base_url":provider.url}
+                ]
             })
             .to_string(),
         )

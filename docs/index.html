@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="NioAI is a lightweight, autonomous terminal AI coding agent built in Rust, bundled with NioXS companion gateway and NioAtom reasoning.">
+  <meta name="theme-color" content="#f6f8fa">
+  <title>NioAI Docs — Terminal AI Coding Agent &amp; Companion</title>
+  <link rel="icon" type="image/svg+xml" href="logo.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Google+Sans+Code:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism.min.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="mobile-header">
+    <button class="hamburger-btn" id="menuToggle" type="button" aria-label="Toggle navigation" aria-controls="sidebar" aria-expanded="false">
+      <span></span><span></span><span></span>
+    </button>
+    <a href="#overview" class="brand-title">
+      <img class="brand-logo" src="logo.svg" alt="NioAI logo">
+      <span class="brand-name">NioAI</span>
+      <span class="badge">v0.3.9</span>
+    </a>
+    <button class="theme-toggle-btn" type="button" aria-label="Toggle theme">
+      <span class="theme-icon">
+        <svg viewBox="0 0 16 16"><path d="M6 .278a.768.768 0 0 1 .08.858 7.208 7.208 0 0 0-.878 3.46c0 4.021 3.278 7.277 7.318 7.277.527 0 1.04-.055 1.533-.16a.787.787 0 0 1 .81.316.733.733 0 0 1-.031.893A8.349 8.349 0 0 1 8.344 16C3.734 16 0 12.286 0 7.71 0 4.266 2.114 1.312 5.124.06A.752.752 0 0 1 6 .278z"/></svg>
+      </span>
+    </button>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <a href="#overview" class="sidebar-brand">
+          <img class="brand-logo" src="logo.svg" alt="NioAI logo">
+          <span class="brand-text">
+            <span class="brand-name">NioAI</span>
+            <span class="brand-sub">Autonomous Terminal Agent</span>
+          </span>
+        </a>
+      </div>
+      <nav class="sidebar-nav" aria-label="Documentation">
+        <div class="nav-section">
+          <div class="nav-section-title">Getting Started</div>
+          <a href="#overview" class="nav-link active">1. Overview</a>
+          <a href="#quickstart" class="nav-link">2. Quickstart</a>
+          <a href="#bundled-xs" class="nav-link">3. Bundled NioXS &amp; NioAtom</a>
+          <a href="#modes" class="nav-link">4. Agent Modes</a>
+        </div>
+        <div class="nav-section">
+          <div class="nav-section-title">Core Architecture</div>
+          <a href="#tools" class="nav-link">5. Tools &amp; MCP Protocol</a>
+          <a href="#personalization" class="nav-link">6. Personalization &amp; Memory</a>
+          <a href="#providers" class="nav-link">7. Providers &amp; Fallbacks</a>
+          <a href="#security" class="nav-link">8. Security &amp; Safety</a>
+        </div>
+        <div class="nav-section">
+          <div class="nav-section-title">Reference</div>
+          <a href="#cli" class="nav-link">9. CLI Commands</a>
+          <a href="#faq" class="nav-link">10. FAQ</a>
+        </div>
+      </nav>
+      <div class="sidebar-footer">
+        <button class="theme-toggle-btn" type="button" aria-label="Toggle theme">
+          <span class="theme-icon">
+            <svg viewBox="0 0 16 16"><path d="M6 .278a.768.768 0 0 1 .08.858 7.208 7.208 0 0 0-.878 3.46c0 4.021 3.278 7.277 7.318 7.277.527 0 1.04-.055 1.533-.16a.787.787 0 0 1 .81.316.733.733 0 0 1-.031.893A8.349 8.349 0 0 1 8.344 16C3.734 16 0 12.286 0 7.71 0 4.266 2.114 1.312 5.124.06A.752.752 0 0 1 6 .278z"/></svg>
+          </span>
+          <span class="theme-text">Dark mode</span>
+        </button>
+        <a href="https://github.com/nio-labs/nio" target="_blank" rel="noreferrer" class="github-link">
+          <svg height="18" width="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg>
+          <span>GitHub: nio-labs/nio</span>
+        </a>
+      </div>
+    </aside>
+
+    <main class="content-wrapper">
+      <div class="content-container">
+        <!-- 1. OVERVIEW -->
+        <section id="overview" class="doc-section">
+          <div class="hero-header">
+            <div class="hero-badges">
+              <span class="badge badge-accent">Release v0.3.9</span>
+              <span class="badge">Bundled NioXS &amp; NioAtom</span>
+              <span class="badge">Rust Native</span>
+              <span class="badge">Zero Telemetry</span>
+            </div>
+            <h1 class="hero-title">The autonomous terminal coding agent, bundled with your companion gateway.</h1>
+            <p class="hero-desc">NioAI is a lightweight, blazing-fast AI coding companion that runs entirely from your command line. Pre-bundled with NioXS companion gateway and default NioAtom reasoning, NioAI automates multi-file edits, compiler repairs, code navigation, and test validation with zero telemetry and total data privacy.</p>
+            <div class="capsule-actions">
+              <a class="capsule-button" href="#quickstart">Get started →</a>
+              <a class="capsule-button capsule-button-secondary" href="https://github.com/nio-labs/nio" target="_blank" rel="noreferrer">View on GitHub</a>
+            </div>
+          </div>
+
+          <div class="card-grid" style="margin-top: 32px;">
+            <div class="card">
+              <h3>⚡ Zero Manual Setup</h3>
+              <p>NioXS and NioDB are pre-bundled. Running <code>nio</code> automatically ensures the companion gateway is live, starts NioAtom reasoning, and handles turn orchestration with zero extra steps.</p>
+            </div>
+            <div class="card">
+              <h3>🧠 NioAtom Autonomous Coder</h3>
+              <p>Default model is set to <code>nioxs::nio-atom</code>, purpose-built for iterative planning, atomic multi-file refactoring, diagnostics recovery, and syntax verification.</p>
+            </div>
+            <div class="card">
+              <h3>🛡️ Transactional File Safety</h3>
+              <p>Every file modification is tracked with atomic undo/redo backups. Path traversal attacks outside the project directory are mathematically rejected before execution.</p>
+            </div>
+            <div class="card">
+              <h3>🔌 Universal MCP &amp; Plugins</h3>
+              <p>Native Model Context Protocol (MCP) server &amp; client support, dynamic custom plugins, and extensible tool chains without changing your workflow.</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- 2. QUICKSTART -->
+        <section id="quickstart" class="doc-section">
+          <div class="section-header">
+            <span class="section-step">Step 2</span>
+            <h2>Quickstart</h2>
+            <p>Get up and running in seconds using your package manager of choice.</p>
+          </div>
+
+          <div class="tab-box">
+            <div class="tab-header">
+              <button class="tab-btn active" data-tab="npx">npx (Instant)</button>
+              <button class="tab-btn" data-tab="curl">Linux &amp; macOS</button>
+              <button class="tab-btn" data-tab="ps">Windows</button>
+              <button class="tab-btn" data-tab="cargo">Cargo</button>
+            </div>
+            <div class="tab-pane active" id="pane-npx">
+              <p>Run directly without installation via npm/npx:</p>
+              <pre><code class="language-bash">npx @nio-labs/nio-ai</code></pre>
+              <p>Or install globally to have the <code>nio</code> command available anywhere:</p>
+              <pre><code class="language-bash">npm install -g @nio-labs/nio-ai
+nio "Explain project architecture"</code></pre>
+            </div>
+            <div class="tab-pane" id="pane-curl">
+              <p>Native standalone binary installation via shell script:</p>
+              <pre><code class="language-bash">curl -fsSL https://raw.githubusercontent.com/nio-labs/nio/main/install.sh | sh</code></pre>
+              <p>This automatically downloads the pre-built native binary for Linux (x86_64, aarch64, musl, Termux) or macOS (Intel, Apple Silicon) and bundles the NioXS companion gateway.</p>
+            </div>
+            <div class="tab-pane" id="pane-ps">
+              <p>Install on Windows via PowerShell:</p>
+              <pre><code class="language-powershell">irm https://raw.githubusercontent.com/nio-labs/nio/main/install.ps1 | iex</code></pre>
+            </div>
+            <div class="tab-pane" id="pane-cargo">
+              <p>Build from source with Cargo:</p>
+              <pre><code class="language-bash">cargo install --locked --git https://github.com/nio-labs/nio.git</code></pre>
+            </div>
+          </div>
+        </section>
+
+        <!-- 3. BUNDLED NIOXS & NIOATOM -->
+        <section id="bundled-xs" class="doc-section">
+          <div class="section-header">
+            <span class="section-step">Step 3</span>
+            <h2>Bundled NioXS &amp; NioAtom</h2>
+            <p>NioAI and NioXS work as a unified pairing. NioAI is your interactive terminal agent, while NioXS serves as the intelligent companion gateway.</p>
+          </div>
+
+          <div class="card" style="margin-bottom: 24px;">
+            <h3>Automatic Companion Gateway Management</h3>
+            <p>When you start NioAI, it performs an instant health probe to <code>http://127.0.0.1:7460</code>. If the NioXS companion gateway is not running, NioAI automatically launches <code>nioxs serve</code> in the background. You never have to manually run or supervise background services.</p>
+          </div>
+
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Component</th>
+                <th>Role</th>
+                <th>Default Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>NioAI</strong></td>
+                <td>Terminal UI, multi-turn conversational agent, diff preview, tool dispatch</td>
+                <td>Interactive CLI</td>
+              </tr>
+              <tr>
+                <td><strong>NioXS</strong></td>
+                <td>Companion gateway, semantic caching, vector history, prompt handoff</td>
+                <td>Auto-spawned on port 7460</td>
+              </tr>
+              <tr>
+                <td><strong>NioAtom</strong></td>
+                <td>Default autonomous coding model (<code>nioxs::nio-atom</code>)</td>
+                <td>Default model selector</td>
+              </tr>
+              <tr>
+                <td><strong>NioDB</strong></td>
+                <td>Embedded local vector database and session persistent state</td>
+                <td>Bundled with NioXS (port 7432)</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+
+        <!-- 4. AGENT MODES -->
+        <section id="modes" class="doc-section">
+          <div class="section-header">
+            <span class="section-step">Step 4</span>
+            <h2>Agent Modes</h2>
+            <p>Tailor NioAI's permissions and tool accessibility to your workflow.</p>
+          </div>
+
+          <div class="card-grid">
+            <div class="card">
+              <h3>🔨 Build Mode</h3>
+              <p>Full mutation capabilities. The agent can create files, apply diffs, execute diagnostics, and run test suites with interactive user confirmations.</p>
+            </div>
+            <div class="card">
+              <h3>📖 Ask Mode</h3>
+              <p>Read-only investigation mode. Perfect for explaining complex codebases, reviewing pull requests, and auditing security without modifying files.</p>
+            </div>
+            <div class="card">
+              <h3>📋 Plan Mode</h3>
+              <p>Decomposes complex architectural tasks into structured milestones before writing code. Produces actionable checklists.</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- 5. TOOLS & MCP -->
+        <section id="tools" class="doc-section">
+          <div class="section-header">
+            <span class="section-step">Step 5</span>
+            <h2>Tools &amp; MCP Protocol</h2>
+            <p>Standardized, secure tool execution adhering to the Model Context Protocol.</p>
+          </div>
+
+          <pre><code class="language-bash"># Inspect project capabilities and active MCP servers
+nio mcp list
+
+# Run command with specific MCP plugin enabled
+nio plugins install &lt;plugin-id&gt;</code></pre>
+        </section>
+
+        <!-- 6. PERSONALIZATION -->
+        <section id="personalization" class="doc-section">
+          <div class="section-header">
+            <span class="section-step">Step 6</span>
+            <h2>Personalization &amp; Memory</h2>
+            <p>NioAI adapts to your project coding style, preferred libraries, and workflows over time.</p>
+          </div>
+
+          <div class="card">
+            <h3>Persona Customization</h3>
+            <p>Set persistent personas or behavioral directives:</p>
+            <pre><code class="language-bash">nio persona set "Senior Rust Engineer specializing in async systems and high performance"</code></pre>
+          </div>
+        </section>
+
+        <!-- 7. PROVIDERS & FALLBACKS -->
+        <section id="providers" class="doc-section">
+          <div class="section-header">
+            <span class="section-step">Step 7</span>
+            <h2>Providers &amp; Fallbacks</h2>
+            <p>Fault-tolerant architecture guarantees continuous coding even during network dropouts or rate limits.</p>
+          </div>
+
+          <div class="card" style="margin-bottom: 20px;">
+            <h3>Default Fallback Chain</h3>
+            <p>If NioAtom or the local gateway is temporarily unreachable, NioAI smoothly fails over along the deterministic chain:</p>
+            <ol style="margin-left: 20px; margin-top: 10px; line-height: 1.8;">
+              <li><code>nioxs::nio-atom</code> (Local Companion Gateway)</li>
+              <li><code>kilo::openrouter/free</code> (Global Free Router)</li>
+              <li><code>kilo::cohere/north-mini-code:free</code></li>
+              <li><code>kilo::stepfun/step-5-preview-free</code></li>
+              <li><code>kilo::kilo-auto/free</code></li>
+            </ol>
+          </div>
+        </section>
+
+        <!-- 8. SECURITY -->
+        <section id="security" class="doc-section">
+          <div class="section-header">
+            <span class="section-step">Step 8</span>
+            <h2>Security &amp; Safety</h2>
+            <p>Engineered for enterprise trust and developer safety.</p>
+          </div>
+
+          <ul style="margin-left: 20px; line-height: 2;">
+            <li><strong>Path Traversal Immunity:</strong> Canonical path resolution ensures tools can never read or write outside the current project root.</li>
+            <li><strong>Atomic Undo/Redo:</strong> Every patch is backed up in a project-scoped journal. Revert any turn instantly.</li>
+            <li><strong>Zero Remote Telemetry:</strong> Code, prompts, and session history remain strictly local on your machine.</li>
+          </ul>
+        </section>
+
+        <!-- 9. CLI COMMANDS -->
+        <section id="cli" class="doc-section">
+          <div class="section-header">
+            <span class="section-step">Step 9</span>
+            <h2>CLI Commands</h2>
+            <p>Quick reference for NioAI terminal subcommands.</p>
+          </div>
+
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Command</th>
+                <th>Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>nio [PROMPT]</code></td>
+                <td>Launch interactive coding turn or prompt</td>
+              </tr>
+              <tr>
+                <td><code>nio xs [ARGS]</code></td>
+                <td>Directly invoke or manage the bundled NioXS companion gateway</td>
+              </tr>
+              <tr>
+                <td><code>nio models</code></td>
+                <td>List all available local and remote models</td>
+              </tr>
+              <tr>
+                <td><code>nio provider</code></td>
+                <td>Manage AI gateway providers and API credentials</td>
+              </tr>
+              <tr>
+                <td><code>nio sessions</code></td>
+                <td>View, resume, or export prior conversation sessions</td>
+              </tr>
+              <tr>
+                <td><code>nio doctor</code></td>
+                <td>Perform complete system health and compiler diagnostic check</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+
+        <!-- 10. FAQ -->
+        <section id="faq" class="doc-section">
+          <div class="section-header">
+            <span class="section-step">Step 10</span>
+            <h2>FAQ</h2>
+          </div>
+
+          <div class="card" style="margin-bottom: 16px;">
+            <h3>Do I need to install NioXS separately?</h3>
+            <p>No. When you install or run NioAI, NioXS is already bundled. NioAI will automatically download or link the native NioXS binary and launch it as needed.</p>
+          </div>
+
+          <div class="card">
+            <h3>Can I use my own OpenAI, Anthropic, or OpenRouter keys?</h3>
+            <p>Yes. Run <code>nio provider add</code> or set environment variables like <code>OPENAI_API_KEY</code> or <code>OPENROUTER_API_KEY</code>.</p>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-powershell.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

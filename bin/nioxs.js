@@ -14,7 +14,7 @@ const os = require('os');
 const https = require('https');
 
 const REPO = 'nio-labs/nio-xs';
-const DEFAULT_VERSION = 'v0.4.3';
+const DEFAULT_VERSION = 'v0.4.4';
 const VERSION = process.env.NIOXS_VERSION || DEFAULT_VERSION;
 
 function getPlatformInfo() {

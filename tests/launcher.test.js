@@ -250,3 +250,11 @@ test('nioxs runner exports platform detection and download functions', () => {
   assert.ok(['amd64', 'arm64', 'x64', 'x86_64'].includes(info.arch) || info.arch.length > 0);
 });
 
+test('nio runner exports port check and auto-run gateway functions', () => {
+  const nio = require('../bin/nio.js');
+  assert.equal(typeof nio.isPortOpen, 'function');
+  assert.equal(typeof nio.ensureNioXsRunning, 'function');
+});
+
+
+
