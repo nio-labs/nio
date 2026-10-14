@@ -1130,6 +1130,68 @@ fn find_nioxs_binary() -> Option<PathBuf> {
     adjacent.or(cached).or(local_bin).or(path_bin)
 }
 
+fn auto_install_nioxs() -> Option<PathBuf> {
+    let user_home = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)?;
+    let bin_dir = user_home.join(".nioxs").join("bin");
+    let _ = std::fs::create_dir_all(&bin_dir);
+    let binary_name = if cfg!(windows) { "nioxs.exe" } else { "nioxs" };
+    let target_path = bin_dir.join(binary_name);
+
+    let os = if cfg!(target_os = "macos") {
+        "darwin"
+    } else if cfg!(target_os = "windows") {
+        "windows"
+    } else {
+        "linux"
+    };
+    let arch = if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else {
+        "amd64"
+    };
+    let ext = if cfg!(windows) { ".exe" } else { "" };
+    let asset = format!("nioxs-{os}-{arch}{ext}");
+    let url = format!("https://github.com/nio-labs/nio-xs/releases/latest/download/{asset}");
+
+    println!("📦 Auto-installing NioXS companion gateway ({asset})...");
+    if cfg!(windows) {
+        let script = format!(
+            "Invoke-WebRequest -Uri '{url}' -OutFile '{}'",
+            target_path.display()
+        );
+        let _ = std::process::Command::new("powershell")
+            .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+            .output();
+    } else {
+        let _ = std::process::Command::new("curl")
+            .args([
+                "--connect-timeout",
+                "10",
+                "--max-time",
+                "120",
+                "-fsSL",
+                &url,
+                "-o",
+                target_path.to_str().unwrap_or(""),
+            ])
+            .output();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&target_path, std::fs::Permissions::from_mode(0o755));
+        }
+    }
+
+    if target_path.is_file() {
+        println!("✅ Installed NioXS to {}", target_path.display());
+        Some(target_path)
+    } else {
+        None
+    }
+}
+
 fn is_nioxs_responsive(port: u16) -> bool {
     use std::net::{SocketAddr, TcpStream};
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
@@ -1140,7 +1202,7 @@ fn ensure_nioxs_gateway() {
     if is_nioxs_responsive(7460) {
         return;
     }
-    let found_binary = find_nioxs_binary();
+    let found_binary = find_nioxs_binary().or_else(auto_install_nioxs);
     let spawned = if let Some(bin) = found_binary {
         std::process::Command::new(bin)
             .arg("serve")
@@ -1180,7 +1242,7 @@ fn ensure_nioxs_gateway() {
 }
 
 fn run_nioxs_gateway(options: &Options) -> Result<(), CliError> {
-    if let Some(bin) = find_nioxs_binary() {
+    if let Some(bin) = find_nioxs_binary().or_else(auto_install_nioxs) {
         let mut cmd = std::process::Command::new(bin);
         cmd.args(&options.prompt);
         let status = cmd
