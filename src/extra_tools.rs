@@ -147,14 +147,14 @@ pub fn search_code(root: &Path, args: &Value, cancelled: &AtomicBool) -> Result<
         let Ok(meta) = std::fs::metadata(&path) else {
             continue;
         };
-        if meta.len() > 512 * 1024 {
+        if meta.len() > 2 * 1024 * 1024 {
             continue;
         }
         if read_bytes + meta.len() as usize > FILE_SCAN_LIMIT {
             limited = true;
             break;
         }
-        let Ok(bytes) = read_bounded(&path, FILE_LIMIT) else {
+        let Ok(bytes) = read_bounded(&path, 2 * 1024 * 1024) else {
             continue;
         };
         read_bytes += bytes.len();

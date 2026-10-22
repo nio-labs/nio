@@ -151,7 +151,7 @@ impl PersonaConfig {
     pub fn display_name(&self) -> &str {
         match self.name.as_deref().map(str::trim) {
             Some(n) if !n.is_empty() => n,
-            _ => "NioAI",
+            _ => "Nio",
         }
     }
 
@@ -163,7 +163,7 @@ impl PersonaConfig {
             .as_deref()
             .map(str::trim)
             .filter(|s| !s.is_empty())
-            .unwrap_or("NioAI");
+            .unwrap_or("Nio");
         let clean = clean_persona_name(raw);
         (clean, raw)
     }
@@ -407,7 +407,7 @@ pub fn apply_command(persona: &mut PersonaConfig, args: &[String]) -> Result<Str
                 || trimmed.eq_ignore_ascii_case("default")
             {
                 set_name(persona, None);
-                Ok("Persona name reset to default (NioAI).".into())
+                Ok("Persona name reset to default (Nio).".into())
             } else {
                 set_name(persona, Some(trimmed.to_string()));
                 Ok(format!("Persona name set to '{}'.", persona.display_name()))
@@ -484,7 +484,7 @@ pub fn apply_command(persona: &mut PersonaConfig, args: &[String]) -> Result<Str
         }
         "reset" => {
             reset_persona(persona);
-            Ok("Reset persona to default (NioAI, no custom instructions).".into())
+            Ok("Reset persona to default (Nio, no custom instructions).".into())
         }
         "help" | "-h" | "--help" => Ok(persona_help_text()),
         unknown => Err(format!(
@@ -629,7 +629,7 @@ pub fn format_persona_status(persona: &PersonaConfig) -> String {
                 name.clone()
             }
         }
-        _ => "NioAI (default)".to_string(),
+        _ => "Nio (default)".to_string(),
     };
     out.push_str(&format!("  Name: {name_str}\n"));
     if let Some(ref g) = persona.gender {
@@ -682,7 +682,7 @@ pub fn persona_help_text() -> String {
     out.push_str(
         "  :persona name <name>        Set persona name (e.g. :persona name Alex or Riley)\n",
     );
-    out.push_str("  :persona name reset         Reset persona name to default (NioAI)\n");
+    out.push_str("  :persona name reset         Reset persona name to default (Nio)\n");
     out.push_str(
         "  :persona gender <gender>    Set persona gender (female, male, non-binary, reset)\n",
     );
@@ -756,7 +756,7 @@ pub fn interactive_selector(config: &mut crate::UserConfig) -> Result<(), String
     let reset_idx = menu_items.len();
     menu_items.push((
         "Reset to Default",
-        "Revert to standard NioAI assistant without custom persona",
+        "Revert to standard Nio assistant without custom persona",
         config.persona.is_empty(),
     ));
 
@@ -814,7 +814,7 @@ pub fn interactive_selector(config: &mut crate::UserConfig) -> Result<(), String
     } else if selected == reset_idx {
         reset_persona(&mut config.persona);
         crate::save_user_config(config)?;
-        println!("Reset persona to default (NioAI).");
+        println!("Reset persona to default (Nio).");
     }
 
     Ok(())
@@ -901,7 +901,7 @@ mod tests {
     fn test_format_persona_prompt_default() {
         let persona = PersonaConfig::default();
         let (name, section) = format_persona_prompt(&persona);
-        assert_eq!(name, "NioAI");
+        assert_eq!(name, "Nio");
         assert!(section.is_empty());
     }
 
@@ -953,7 +953,7 @@ mod tests {
 
         apply_command(&mut persona, &["name".into(), "reset".into()]).unwrap();
         assert!(persona.name.is_none());
-        assert_eq!(persona.display_name(), "NioAI");
+        assert_eq!(persona.display_name(), "Nio");
         assert_eq!(persona.instructions.len(), 1);
 
         apply_command(&mut persona, &["reset".into()]).unwrap();

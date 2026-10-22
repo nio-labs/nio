@@ -258,6 +258,60 @@ impl AnswerBoundary {
     }
 }
 
+fn render_lines_flicker_free(
+    stdout: &mut io::Stdout,
+    screen: &mut InputRenderState,
+    lines: &[String],
+    target_cursor: Option<(u16, u16)>,
+) -> Result<(), String> {
+    let mut buf = Vec::<u8>::new();
+    if screen.rows > 0 {
+        if screen.cursor_row > 0 {
+            queue!(buf, MoveUp(screen.cursor_row))
+                .map_err(|e| format!("positioning input for redraw: {e}"))?;
+        }
+        queue!(buf, MoveToColumn(0)).map_err(|e| format!("positioning input for redraw: {e}"))?;
+    }
+    for (index, line) in lines.iter().enumerate() {
+        if index > 0 {
+            write!(buf, "\r\n").map_err(|e| e.to_string())?;
+        }
+        write!(buf, "{line}").map_err(|e| e.to_string())?;
+        queue!(buf, Clear(ClearType::UntilNewLine)).map_err(|e| e.to_string())?;
+    }
+    if screen.rows as usize > lines.len() {
+        write!(buf, "\r\n").map_err(|e| e.to_string())?;
+        queue!(buf, Clear(ClearType::FromCursorDown)).map_err(|e| e.to_string())?;
+        let extra = (screen.rows as usize - lines.len()) as u16;
+        queue!(buf, MoveUp(extra)).map_err(|e| e.to_string())?;
+    }
+    let end_row = lines.len().saturating_sub(1) as u16;
+    let (c_row, c_col) = target_cursor.unwrap_or((end_row, 0));
+    let c_row = c_row.min(end_row);
+    if end_row > c_row {
+        queue!(buf, MoveUp(end_row - c_row)).map_err(|e| e.to_string())?;
+    }
+    queue!(buf, MoveToColumn(c_col)).map_err(|e| e.to_string())?;
+    if target_cursor.is_some() {
+        queue!(buf, Show).map_err(|e| e.to_string())?;
+    } else {
+        queue!(buf, Hide).map_err(|e| e.to_string())?;
+    }
+    stdout.write_all(&buf).map_err(|e| e.to_string())?;
+    stdout.flush().map_err(|e| e.to_string())?;
+    *screen = InputRenderState {
+        rows: lines.len() as u16,
+        end_row,
+        end_column: lines
+            .last()
+            .map(|row| terminal_text_width(row) as u16)
+            .unwrap_or(0),
+        cursor_row: c_row,
+        cursor_column: c_col,
+    };
+    Ok(())
+}
+
 impl Live {
     fn commit(&mut self, text: &str) -> Result<(), String> {
         let mut stdout = io::stdout();
@@ -418,26 +472,7 @@ impl Live {
             let excess = lines.len().saturating_sub(height.max(1) as usize);
             lines.drain(..excess);
             let mut stdout = io::stdout();
-            clear_input_region(&mut stdout, &mut self.screen)?;
-            for (index, line) in lines.iter().enumerate() {
-                if index > 0 {
-                    write!(stdout, "\r\n").map_err(|e| e.to_string())?;
-                }
-                write!(stdout, "{line}").map_err(|e| e.to_string())?;
-            }
-            queue!(stdout, Hide).map_err(|e| e.to_string())?;
-            let end_row = lines.len().saturating_sub(1) as u16;
-            self.screen = InputRenderState {
-                rows: lines.len() as u16,
-                end_row,
-                end_column: lines
-                    .last()
-                    .map(|row| terminal_text_width(row) as u16)
-                    .unwrap_or(0),
-                cursor_row: end_row,
-                cursor_column: 0,
-            };
-            return stdout.flush().map_err(|e| e.to_string());
+            return render_lines_flicker_free(&mut stdout, &mut self.screen, &lines, None);
         }
         if self.queue_open {
             let rendered = render_inline_menu(
@@ -527,31 +562,14 @@ impl Live {
         lines.drain(..excess);
         let cursor_row = cursor_row.saturating_sub(excess);
         let mut stdout = io::stdout();
-        clear_input_region(&mut stdout, &mut self.screen)?;
-        for (index, line) in lines.iter().enumerate() {
-            if index > 0 {
-                write!(stdout, "\r\n").map_err(|e| e.to_string())?;
-            }
-            write!(stdout, "{line}").map_err(|e| e.to_string())?;
-        }
         let end_row = lines.len().saturating_sub(1) as u16;
-        let cursor_row = (cursor_row as u16).min(end_row);
-        if end_row > cursor_row {
-            queue!(stdout, MoveUp(end_row - cursor_row)).map_err(|e| e.to_string())?;
-        }
-        queue!(stdout, MoveToColumn(position.1)).map_err(|e| e.to_string())?;
-        queue!(stdout, Show).map_err(|e| e.to_string())?;
-        self.screen = InputRenderState {
-            rows: lines.len() as u16,
-            end_row,
-            end_column: lines
-                .last()
-                .map(|row| terminal_text_width(row) as u16)
-                .unwrap_or(0),
-            cursor_row,
-            cursor_column: position.1,
-        };
-        stdout.flush().map_err(|e| e.to_string())
+        let c_row = (cursor_row as u16).min(end_row);
+        render_lines_flicker_free(
+            &mut stdout,
+            &mut self.screen,
+            &lines,
+            Some((c_row, position.1)),
+        )
     }
     fn close_queue(&mut self) {
         self.queue_open = false;

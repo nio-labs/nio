@@ -6,7 +6,7 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-pub const FILE_LIMIT: usize = 512 * 1024;
+pub const FILE_LIMIT: usize = 2 * 1024 * 1024;
 pub const RESPONSE_LIMIT: usize = 2 * 1024 * 1024;
 pub const EVENT_LIMIT: usize = 1024 * 1024;
 pub const TOOL_LIMIT: usize = 16;

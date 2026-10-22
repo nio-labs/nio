@@ -58,18 +58,34 @@ pub fn approve(action: &str, preview: Option<(&str, &str)>) -> Option<Result<boo
 
 // The TUI owns wrapping once. Markdown supplies styling and block formatting;
 // this wrapper keeps prose words and list continuation indentation together.
-fn chat_rows(entry: &Entry, width: usize) -> Vec<String> {
-    let prefix = match entry.role.as_str() {
-        "Nio" => "🤖 nio: ".to_string(),
-        "You" => "🤖 nio> ".to_string(),
-        "Progress" => "🔹 ".to_string(),
-        _ => format!("{}: ", entry.role),
+fn chat_rows(entry: &Entry, width: usize, persona_name: &str) -> Vec<String> {
+    let is_assistant = !matches!(
+        entry.role.as_str(),
+        "You"
+            | "Progress"
+            | "Tool"
+            | "Error"
+            | "Undo"
+            | "Path"
+            | "Edit"
+            | "Plugins"
+            | "Skills"
+            | "Persona"
+    );
+    let prefix = if entry.role == "You" {
+        format!("🤖 {persona_name}> ")
+    } else if entry.role == "Progress" {
+        "🔹 ".to_string()
+    } else if is_assistant {
+        format!("🤖 {}: ", entry.role.to_lowercase())
+    } else {
+        format!("{}: ", entry.role)
     };
     let indent = " ".repeat(terminal_text_width(&prefix));
     let content_width = width
         .saturating_sub(1 + terminal_text_width(&prefix))
         .max(1);
-    let text = if entry.role == "Nio" {
+    let text = if is_assistant {
         let mut formatter = MarkdownFormatter::new(true);
         formatter.wrap_width = content_width + RESPONSE_INDENT_WIDTH;
         formatter.wrap_prose = false;
@@ -241,6 +257,86 @@ impl Drop for ScreenGuard {
 struct Entry {
     role: String,
     text: String,
+    revision: u64,
+}
+
+// Formatting a whole transcript on every frame is quadratic in the length of a
+// response: a local NioXS model streams faster than markdown can be re-rendered.
+// Cache each entry's rendered rows and only rebuild the ones that changed.
+struct ChatSegment {
+    revision: u64,
+    animation: u64,
+    rows: Vec<String>,
+}
+impl ChatSegment {
+    fn matches(&self, revision: u64, animation: u64) -> bool {
+        self.revision == revision && self.animation == animation
+    }
+}
+#[derive(Default)]
+struct ChatCache {
+    width: usize,
+    segments: Vec<ChatSegment>,
+}
+// Only the rows that fit on screen are materialised, so scrolling a long
+// transcript costs the same as a short one.
+fn visible_chat_rows<'a>(
+    segments: &'a [ChatSegment],
+    content_height: usize,
+    scroll: usize,
+) -> (usize, Vec<(usize, &'a str)>) {
+    let total_rows = segments
+        .iter()
+        .map(|segment| segment.rows.len() + 1)
+        .sum::<usize>();
+    let max_scroll = total_rows.saturating_sub(content_height);
+    let scroll = scroll.min(max_scroll);
+    let start = total_rows.saturating_sub(content_height + scroll);
+    let end = start + content_height;
+    let mut visible = Vec::new();
+    let mut row_index = 0usize;
+    for segment in segments {
+        let next = row_index + segment.rows.len() + 1;
+        if next > start && row_index < end {
+            for (offset, row) in segment.rows.iter().enumerate() {
+                let absolute = row_index + offset;
+                if absolute >= start && absolute < end {
+                    visible.push((absolute - start, row.as_str()));
+                }
+            }
+        }
+        row_index = next;
+        if row_index >= end {
+            break;
+        }
+    }
+    (scroll, visible)
+}
+
+fn chat_segment(
+    entry: &Entry,
+    width: usize,
+    animation: u64,
+    text: Option<&str>,
+    persona_name: &str,
+) -> ChatSegment {
+    let rows = match text {
+        Some(text) => chat_rows(
+            &Entry {
+                role: entry.role.clone(),
+                text: text.to_string(),
+                revision: entry.revision,
+            },
+            width,
+            persona_name,
+        ),
+        None => chat_rows(entry, width, persona_name),
+    };
+    ChatSegment {
+        revision: entry.revision,
+        animation,
+        rows,
+    }
 }
 struct ModelSearch {
     query: String,
@@ -310,6 +406,7 @@ struct State {
     composer_row: u16,
     composer_positions: Vec<(u16, u16)>,
     palette_selected: usize,
+    chat_cache: ChatCache,
     frame_rows: Vec<String>,
     frame_size: (usize, usize),
     frame_background: Option<Color>,
@@ -320,10 +417,12 @@ impl State {
         self.entries.push(Entry {
             role: role.into(),
             text: text.into(),
+            revision: 0,
         });
     }
     fn restore(&mut self) {
         self.entries.clear();
+        self.chat_cache.segments.clear();
         for message in self.history.clone() {
             match message["role"].as_str() {
                 Some("user") => {
@@ -336,7 +435,8 @@ impl State {
                         .as_str()
                         .filter(|text| !text.trim().is_empty())
                     {
-                        self.add("Nio", text);
+                        let name = self.config.persona.display_name().to_string();
+                        self.add(&name, text);
                     }
                 }
                 Some("tool") => {
@@ -502,12 +602,15 @@ impl State {
                     let index = if let Some(index) = self.answer_index {
                         index
                     } else {
-                        self.add("Nio", "");
+                        let name = self.config.persona.display_name().to_string();
+                        self.add(&name, "");
                         let index = self.entries.len() - 1;
                         self.answer_index = Some(index);
                         index
                     };
-                    self.entries[index].text.push_str(text);
+                    let entry = &mut self.entries[index];
+                    entry.text.push_str(text);
+                    entry.revision += 1;
                 }
                 Some("reasoning") => {
                     let text = event["part"]["text"]
@@ -556,6 +659,7 @@ impl State {
                                 "{} {title} ({duration:.1}s)",
                                 if status == "error" { "✖" } else { "✔" }
                             );
+                            entry.revision += 1;
                         }
                         let output = part["state"]["output"].as_str().unwrap_or_default();
                         if output.starts_with("Edited ") && output.contains("diff --git") {
@@ -612,7 +716,8 @@ impl State {
                         custom: options.is_empty(),
                     });
                     if options.is_empty() {
-                        self.add("Nio", &title);
+                        let name = self.config.persona.display_name().to_string();
+                        self.add(&name, &title);
                         self.question_draft = Some((
                             std::mem::take(&mut self.input),
                             self.cursor,
@@ -668,6 +773,7 @@ impl State {
                             .find(|entry| entry.role == "Progress")
                         {
                             entry.text = format!("✔  Finished ({:.1}s)", elapsed.as_secs_f32());
+                            entry.revision += 1;
                         } else {
                             self.add(
                                 "Progress",
@@ -895,7 +1001,20 @@ impl State {
             ":help" => { self.panel = Some(Panel { title:"Commands · Esc closes".into(), rows:COMMANDS.iter().map(|(name,description)|format!("{name}  {description}")).collect(), selected:0, sessions:None, commands:None,search:None }); },
             ":sessions" | ":history" | ":histoy" => self.sessions(options)?,
             ":clear" => { if self.busy { return Err("stop the response before clearing history".into()); } self.history.clear(); self.entries.clear(); self.last_diff = None; save_session_history(Some(&self.session), &self.root, &self.history, options.project_trusted)?; },
-            ":model" if !argument.is_empty() => { split_model_selector(argument)?; self.model = argument.into(); self.config.default_model = Some(argument.into()); save_user_config(&self.config)?; self.notice="Model updated for subsequent requests".into(); },
+            ":model" if !argument.is_empty() => {
+                split_model_selector(argument)?;
+                self.model = argument.into();
+                self.config.default_model = Some(argument.into());
+                save_user_config(&self.config)?;
+                if let Some(info) = find_nioxs_fleet_model(argument) {
+                    if !is_nioxs_fleet_model_available(info) {
+                        let size_mb = info.size_bytes as f64 / (1024.0 * 1024.0);
+                        self.notice = format!("Selected {} (download required: {:.1} MiB · prompts on run)", info.name, size_mb);
+                        return Ok(false);
+                    }
+                }
+                self.notice = "Model updated for subsequent requests".into();
+            },
             ":mode" if matches!(argument,"ask"|"plan"|"build") => { self.config.agent_mode=Some(argument.into()); save_user_config(&self.config)?; self.notice="Mode updated for subsequent requests".into(); },
             ":theme" if THEMES.iter().any(|theme|theme.id==argument) => {
                 let mut config=load_user_config()?;
@@ -960,7 +1079,7 @@ impl State {
                     let gender_str = self.config.persona.gender.as_deref().unwrap_or("unspecified");
                     choices.push((format!("  Gender & Pronouns · {gender_str} (female, male, neutral)"), ":persona-gender".into()));
                     choices.push(("  Clear Rules       · Remove all custom instructions".into(), ":persona clear".into()));
-                    choices.push(("  Reset to Default  · Revert to NioAI".into(), ":persona reset".into()));
+                    choices.push(("  Reset to Default  · Revert to Nio".into(), ":persona reset".into()));
 
                     let active_title = self.config.persona.preset.as_deref()
                         .and_then(persona::find_preset)
@@ -975,6 +1094,7 @@ impl State {
                     let parts = argument.split_whitespace().map(str::to_string).collect::<Vec<_>>();
                     let msg = persona::apply_command(&mut self.config.persona, &parts)?;
                     save_user_config(&self.config)?;
+                    self.chat_cache = ChatCache::default();
                     self.notice = msg;
                 }
             }
@@ -1130,33 +1250,54 @@ impl State {
         let content_end = body_end.saturating_sub(queue_rows + usize::from(!queue.is_empty()));
         let content_start = 3usize;
         let content_height = content_end.saturating_sub(content_start);
-        let mut rows = Vec::new();
         let active_progress = self
             .entries
             .iter()
             .rposition(|entry| entry.role == "Progress");
-        for (entry_index, entry) in self.entries.iter().enumerate() {
-            let mut entry = Entry {
-                role: entry.role.clone(),
-                text: entry.text.clone(),
-            };
-            if self.busy && self.progress_active && Some(entry_index) == active_progress {
-                const FRAMES: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-                let elapsed = self
-                    .turn_started
-                    .map(|started| started.elapsed())
-                    .unwrap_or_default();
-                let frame = FRAMES[(elapsed.as_millis() / 80) as usize % FRAMES.len()];
-                entry.text = format!("{frame} {} ({}s)", entry.text, elapsed.as_secs());
-            }
-            rows.extend(chat_rows(&entry, width));
-            rows.push(String::new());
+        let spinner = if self.busy && self.progress_active {
+            const FRAMES: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+            let elapsed = self
+                .turn_started
+                .map(|started| started.elapsed())
+                .unwrap_or_default();
+            let tick = (elapsed.as_millis() / 80) as u64;
+            Some((
+                FRAMES[tick as usize % FRAMES.len()],
+                tick,
+                elapsed.as_secs(),
+            ))
+        } else {
+            None
+        };
+        if self.chat_cache.width != width {
+            self.chat_cache.width = width;
+            self.chat_cache.segments.clear();
         }
-        let max_scroll = rows.len().saturating_sub(content_height);
-        self.scroll = self.scroll.min(max_scroll);
-        let start = rows.len().saturating_sub(content_height + self.scroll);
-        for (index, row) in rows.iter().skip(start).take(content_height).enumerate() {
-            put(index + content_start, row)?;
+        self.chat_cache.segments.truncate(self.entries.len());
+        while self.chat_cache.segments.len() < self.entries.len() {
+            self.chat_cache.segments.push(ChatSegment {
+                revision: u64::MAX,
+                animation: u64::MAX,
+                rows: Vec::new(),
+            });
+        }
+        let persona_name = self.config.persona.display_name().to_lowercase();
+        for (index, entry) in self.entries.iter().enumerate() {
+            let animated = spinner.filter(|_| Some(index) == active_progress);
+            let animation = animated.map(|(_, tick, _)| tick + 1).unwrap_or(0);
+            if self.chat_cache.segments[index].matches(entry.revision, animation) {
+                continue;
+            }
+            let text =
+                animated.map(|(frame, _, seconds)| format!("{frame} {} ({seconds}s)", entry.text));
+            self.chat_cache.segments[index] =
+                chat_segment(entry, width, animation, text.as_deref(), &persona_name);
+        }
+        let (scroll, visible) =
+            visible_chat_rows(&self.chat_cache.segments, content_height, self.scroll);
+        self.scroll = scroll;
+        for (offset, row) in visible {
+            put(offset + content_start, row)?;
         }
         if !queue.is_empty() {
             put(
@@ -1186,7 +1327,8 @@ impl State {
             input_row.saturating_sub(1),
             &"─".repeat(width.saturating_sub(1)),
         )?;
-        let (rendered, _, positions) = render_input_text("🤖 nio> ", &self.input, width);
+        let persona_prompt = format!("🤖 {persona_name}> ");
+        let (rendered, _, positions) = render_input_text(&persona_prompt, &self.input, width);
         let lines = rendered.split("\r\n").collect::<Vec<_>>();
         let cursor_pos = positions.get(self.cursor).copied().unwrap_or((0, 0));
         let first = usize::from(cursor_pos.0).saturating_sub(input_height - 1);
@@ -1442,6 +1584,7 @@ pub async fn run(options: Options) -> Result<(), String> {
         composer_row: 0,
         composer_positions: Vec::new(),
         palette_selected: 0,
+        chat_cache: ChatCache::default(),
         frame_rows: Vec::new(),
         frame_size: (0, 0),
         frame_background: None,
@@ -1963,4 +2106,126 @@ pub async fn run(options: Options) -> Result<(), String> {
         state.session
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod render_cache_tests {
+    use super::{Entry, chat_rows, chat_segment};
+
+    fn entry(role: &str, text: &str, revision: u64) -> Entry {
+        Entry {
+            role: role.into(),
+            text: text.into(),
+            revision,
+        }
+    }
+
+    #[test]
+    fn persona_custom_name_renders_with_prefix_and_markdown() {
+        let entry = entry("Taylor", "Here is **clean** code.", 1);
+        let rows = chat_rows(&entry, 60, "taylor");
+        assert!(rows.iter().any(|r| r.contains("🤖 taylor: ")));
+    }
+
+    #[test]
+    fn persona_custom_name_formats_user_prompt_prefix() {
+        let entry = entry("You", "hello", 1);
+        let rows = chat_rows(&entry, 60, "taylor");
+        assert!(rows.iter().any(|r| r.contains("🤖 taylor> ")));
+    }
+
+    #[test]
+    fn unchanged_entries_reuse_their_rendered_rows() {
+        let entry = entry("Nio", "A short answer with **bold** text.", 3);
+        let segment = chat_segment(&entry, 60, 0, None, "nio");
+        assert!(segment.matches(3, 0));
+        assert_eq!(segment.rows, chat_rows(&entry, 60, "nio"));
+        assert!(!segment.matches(4, 0));
+        assert!(!segment.matches(3, 7));
+    }
+
+    #[test]
+    fn streamed_text_rebuilds_to_the_same_rows_as_a_fresh_render() {
+        let mut entry = entry("Nio", "Streaming", 1);
+        let first = chat_segment(&entry, 40, 0, None, "nio");
+        assert_eq!(first.rows, chat_rows(&entry, 40, "nio"));
+
+        entry.text.push_str(" the rest of the answer.");
+        entry.revision += 1;
+        let second = chat_segment(&entry, 40, 0, None, "nio");
+        assert!(!first.matches(entry.revision, 0));
+        assert_eq!(second.rows, chat_rows(&entry, 40, "nio"));
+    }
+
+    #[test]
+    fn animated_segments_use_the_supplied_frame_text() {
+        let progress = entry("Progress", "Thinking", 2);
+        let segment = chat_segment(&progress, 60, 9, Some("⠋ Thinking (4s)"), "nio");
+        assert!(segment.matches(2, 9));
+        assert_eq!(
+            segment.rows,
+            chat_rows(&entry("Progress", "⠋ Thinking (4s)", 2), 60, "nio")
+        );
+        assert!(
+            segment
+                .rows
+                .iter()
+                .any(|row| row.contains("⠋ Thinking (4s)"))
+        );
+    }
+
+    #[test]
+    fn segments_are_not_shared_across_widths() {
+        let entry = entry("Nio", "word ".repeat(80).trim_end(), 0);
+        let narrow = chat_segment(&entry, 24, 0, None, "nio");
+        let wide = chat_segment(&entry, 120, 0, None, "nio");
+        assert!(narrow.rows.len() > wide.rows.len());
+        assert_eq!(narrow.animation, 0);
+    }
+}
+
+#[cfg(test)]
+mod visible_rows_tests {
+    use super::{ChatSegment, visible_chat_rows};
+
+    fn segment(rows: &[&str]) -> ChatSegment {
+        ChatSegment {
+            revision: 0,
+            animation: 0,
+            rows: rows.iter().map(|row| row.to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn unscrolled_transcripts_render_every_row_with_blank_separators() {
+        let segments = [segment(&["a", "b"]), segment(&["c"])];
+        let (scroll, visible) = visible_chat_rows(&segments, 20, 0);
+        assert_eq!(scroll, 0);
+        assert_eq!(
+            visible,
+            vec![(0, "a"), (1, "b"), (3, "c")],
+            "each entry keeps a blank separator row"
+        );
+    }
+
+    #[test]
+    fn scrolling_pins_the_view_to_the_latest_rows() {
+        let segments = [segment(&["a", "b"]), segment(&["c"])];
+        let (scroll, visible) = visible_chat_rows(&segments, 2, 0);
+        assert_eq!(scroll, 0);
+        assert_eq!(visible, vec![(0, "c")], "the latest answer stays in view");
+
+        let (scroll, visible) = visible_chat_rows(&segments, 2, 5);
+        assert_eq!(scroll, 3, "scroll is clamped to the transcript length");
+        assert_eq!(visible, vec![(0, "a"), (1, "b")]);
+    }
+
+    #[test]
+    fn an_empty_transcript_and_zero_height_render_nothing() {
+        assert_eq!(visible_chat_rows(&[], 10, 0), (0, Vec::new()));
+        let segments = [segment(&["a"])];
+        let (scroll, visible) = visible_chat_rows(&segments, 0, 5);
+        assert_eq!(scroll, 2);
+        assert!(visible.is_empty());
+    }
 }
