@@ -378,7 +378,7 @@ fn nioxs_provider_preserves_model_id_and_executes_client_tools() {
 #[test]
 fn kilo_is_the_default_and_saved_or_explicit_models_take_precedence() {
     for (saved, explicit, expected) in [
-        (None, None, "nio-atom"),
+        (None, None, "nio-cuda"),
         (Some("kilo::saved-model"), None, "saved-model"),
         (
             Some("kilo::saved-model"),

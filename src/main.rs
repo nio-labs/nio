@@ -46,9 +46,9 @@ use unicode_width::UnicodeWidthStr;
 const KILO_BASE_URL: &str = "https://api.kilo.ai/api/gateway";
 const OPENROUTER_BASE_URL: &str = "https://openrouter.ai/api/v1";
 const NIOXS_BASE_URL: &str = "http://127.0.0.1:7460/v1";
-const DEFAULT_MODEL_SELECTOR: &str = "nioxs::nio-atom";
+const DEFAULT_MODEL_SELECTOR: &str = "nioxs::nio-cuda";
 const DEFAULT_MODEL_FALLBACKS: [&str; 5] = [
-    "nioxs::nio-atom",
+    "nioxs::nio-cuda",
     "kilo::openrouter/free",
     "kilo::cohere/north-mini-code:free",
     "kilo::stepfun/step-5-preview-free",
@@ -5587,8 +5587,10 @@ async fn run_agent_turn_with_resume(
 fn next_default_fallback_model(current_model: &str) -> Option<&'static str> {
     let normalized = if current_model.contains("::") {
         current_model
+    } else if current_model == "nio-cuda" || current_model == "cuda" {
+        "nioxs::nio-cuda"
     } else if current_model == "nio-atom" || current_model == "atom" {
-        "nioxs::nio-atom"
+        "nioxs::nio-cuda"
     } else if current_model.starts_with("openrouter/") {
         "kilo::openrouter/free"
     } else if current_model.starts_with("cohere/") {
@@ -7157,11 +7159,11 @@ mod default_provider_tests {
     #[test]
     fn default_model_fallback_chain_order() {
         assert_eq!(
-            next_default_fallback_model("nioxs::nio-atom"),
+            next_default_fallback_model("nioxs::nio-cuda"),
             Some("kilo::openrouter/free")
         );
         assert_eq!(
-            next_default_fallback_model("nio-atom"),
+            next_default_fallback_model("nio-cuda"),
             Some("kilo::openrouter/free")
         );
         assert_eq!(
@@ -7183,14 +7185,76 @@ mod default_provider_tests {
 
     #[test]
     fn model_priority_rank_ranks_openrouter_mini_code_stepfun_and_auto_free_first() {
-        assert_eq!(model_priority_rank("nioxs::nio-atom"), 0);
-        assert_eq!(model_priority_rank("nio-atom"), 0);
-        assert_eq!(model_priority_rank("openrouter/free"), 1);
-        assert_eq!(model_priority_rank("cohere/north-mini-code:free"), 2);
-        assert_eq!(model_priority_rank("stepfun/step-5-preview-free"), 3);
-        assert_eq!(model_priority_rank("kilo-auto/free"), 4);
-        assert_eq!(model_priority_rank("other-model"), 5);
+        assert_eq!(model_priority_rank("nioxs::nio-cuda"), 0);
+        assert_eq!(model_priority_rank("nio-cuda"), 0);
+        assert_eq!(model_priority_rank("nioxs::nio-ray"), 1);
+        assert_eq!(model_priority_rank("openrouter/free"), 8);
+        assert_eq!(model_priority_rank("cohere/north-mini-code:free"), 9);
+        assert_eq!(model_priority_rank("stepfun/step-5-preview-free"), 10);
+        assert_eq!(model_priority_rank("kilo-auto/free"), 11);
+        assert_eq!(model_priority_rank("other-model"), 13);
     }
+}
+
+fn builtin_nioxs_model_choices() -> Vec<ModelChoice> {
+    vec![
+        ModelChoice {
+            name: "NioCuda — Tactical Swarm Conductor & Orchestrator".into(),
+            id: "nio-cuda".into(),
+            gateway: "nioxs".into(),
+            gateway_label: "NioXS".into(),
+            free: true,
+        },
+        ModelChoice {
+            name: "NioRay — Keystroke Predator (Streaming Reflex 24L, < 86 MB RAM)".into(),
+            id: "nio-ray".into(),
+            gateway: "nioxs".into(),
+            gateway_label: "NioXS".into(),
+            free: true,
+        },
+        ModelChoice {
+            name: "NioViper — Tactical Striker (Shell Reflex 8L, < 47 MB RAM)".into(),
+            id: "nio-viper".into(),
+            gateway: "nioxs".into(),
+            gateway_label: "NioXS".into(),
+            free: true,
+        },
+        ModelChoice {
+            name: "NioManta — Conversational & AST Companion (16L, < 110 MB RAM)".into(),
+            id: "nio-manta".into(),
+            gateway: "nioxs".into(),
+            gateway_label: "NioXS".into(),
+            free: true,
+        },
+        ModelChoice {
+            name: "NioNano — Intent Reflex & MicroLM (~0.5M, sub-0.1ms)".into(),
+            id: "nio-nano".into(),
+            gateway: "nioxs".into(),
+            gateway_label: "NioXS".into(),
+            free: true,
+        },
+        ModelChoice {
+            name: "NioMicro — Contextual Policy Decision Arbiter (5.0M / cluster)".into(),
+            id: "nio-micro".into(),
+            gateway: "nioxs".into(),
+            gateway_label: "NioXS".into(),
+            free: true,
+        },
+        ModelChoice {
+            name: "NioMask — Byte-Stream Privacy & Secret Redactor (1.1M, sub-0.2ms)".into(),
+            id: "nio-mask".into(),
+            gateway: "nioxs".into(),
+            gateway_label: "NioXS".into(),
+            free: true,
+        },
+        ModelChoice {
+            name: "NioMini — Predictive Defect & Quality Forecaster (7.1M, sub-5ms)".into(),
+            id: "nio-mini".into(),
+            gateway: "nioxs".into(),
+            gateway_label: "NioXS".into(),
+            free: true,
+        },
+    ]
 }
 
 async fn fetch_model_choices(options: &Options) -> Result<Vec<ModelChoice>, String> {
@@ -7220,7 +7284,20 @@ async fn fetch_model_choices(options: &Options) -> Result<Vec<ModelChoice>, Stri
                 &provider.id,
                 &provider.name,
             )),
-            Err(error) => errors.push(format!("{}: {error}", provider.name)),
+            Err(error) => {
+                if provider.id == "nioxs" {
+                    // Inject built-in NioXS fleet catalog so local models are always available
+                    choices.extend(builtin_nioxs_model_choices());
+                } else {
+                    errors.push(format!("{}: {error}", provider.name));
+                }
+            }
+        }
+    }
+    // Guarantee all official NioXS models are present even if gateway returned partial catalog
+    for builtin in builtin_nioxs_model_choices() {
+        if !choices.iter().any(|c| c.gateway == "nioxs" && c.id == builtin.id) {
+            choices.push(builtin);
         }
     }
     if choices.is_empty() && !errors.is_empty() {
@@ -7246,18 +7323,34 @@ async fn fetch_model_choices(options: &Options) -> Result<Vec<ModelChoice>, Stri
 }
 
 fn model_priority_rank(id: &str) -> usize {
-    if id == "nio-atom" || id == "nioxs::nio-atom" {
+    if id == "nio-cuda" || id == "nioxs::nio-cuda" {
         0
-    } else if id == "openrouter/free" || id == "kilo::openrouter/free" {
+    } else if id == "nio-ray" || id == "nioxs::nio-ray" {
         1
-    } else if id == "cohere/north-mini-code:free" || id == "kilo::cohere/north-mini-code:free" {
+    } else if id == "nio-viper" || id == "nioxs::nio-viper" {
         2
-    } else if id == "stepfun/step-5-preview-free" || id == "kilo::stepfun/step-5-preview-free" {
+    } else if id == "nio-manta" || id == "nioxs::nio-manta" {
         3
-    } else if id == "kilo-auto/free" || id == "kilo::kilo-auto/free" {
+    } else if id == "nio-nano" || id == "nioxs::nio-nano" {
         4
-    } else {
+    } else if id == "nio-micro" || id == "nioxs::nio-micro" {
         5
+    } else if id == "nio-mask" || id == "nioxs::nio-mask" {
+        6
+    } else if id == "nio-mini" || id == "nioxs::nio-mini" {
+        7
+    } else if id == "openrouter/free" || id == "kilo::openrouter/free" {
+        8
+    } else if id == "cohere/north-mini-code:free" || id == "kilo::cohere/north-mini-code:free" {
+        9
+    } else if id == "stepfun/step-5-preview-free" || id == "kilo::stepfun/step-5-preview-free" {
+        10
+    } else if id == "kilo-auto/free" || id == "kilo::kilo-auto/free" {
+        11
+    } else if id.starts_with("nioxs::") || id.starts_with("nio-") {
+        12
+    } else {
+        13
     }
 }
 
@@ -7403,7 +7496,7 @@ async fn interactive(mut options: Options) -> Result<(), String> {
         .clone()
         .unwrap_or_else(generate_session_id);
     let mut model = chosen_model(&options).await?;
-    if (model.starts_with("nioxs::") || model == "nio-atom")
+    if (model.starts_with("nioxs::") || model.starts_with("nio-"))
         && let Ok((base_url, _)) = resolve_model_provider(&options, Some("nioxs"), &model)
         && (base_url.contains(":7460") || base_url == NIOXS_BASE_URL)
     {

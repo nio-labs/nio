@@ -103,7 +103,7 @@
             </div>
             <div class="card">
               <h3>🧠 NioAtom Autonomous Coder</h3>
-              <p>Default model is set to <code>nioxs::nio-atom</code>, purpose-built for iterative planning, atomic multi-file refactoring, diagnostics recovery, and syntax verification.</p>
+              <p>Default model is set to <code>nioxs::nio-cuda</code>, purpose-built for iterative planning, atomic multi-file refactoring, diagnostics recovery, and syntax verification.</p>
             </div>
             <div class="card">
               <h3>🛡️ Transactional File Safety</h3>
@@ -186,7 +186,7 @@ nio "Explain project architecture"</code></pre>
               </tr>
               <tr>
                 <td><strong>NioAtom</strong></td>
-                <td>Default autonomous coding model (<code>nioxs::nio-atom</code>)</td>
+                <td>Default autonomous coding model (<code>nioxs::nio-cuda</code>)</td>
                 <td>Default model selector</td>
               </tr>
               <tr>
@@ -260,7 +260,7 @@ nio plugins install &lt;plugin-id&gt;</code></pre>
             <h3>Default Fallback Chain</h3>
             <p>If NioAtom or the local gateway is temporarily unreachable, NioAI smoothly fails over along the deterministic chain:</p>
             <ol style="margin-left: 20px; margin-top: 10px; line-height: 1.8;">
-              <li><code>nioxs::nio-atom</code> (Local Companion Gateway)</li>
+              <li><code>nioxs::nio-cuda</code> (Local Companion Gateway)</li>
               <li><code>kilo::openrouter/free</code> (Global Free Router)</li>
               <li><code>kilo::cohere/north-mini-code:free</code></li>
               <li><code>kilo::stepfun/step-5-preview-free</code></li>
@@ -345,7 +345,7 @@ nio plugins install &lt;plugin-id&gt;</code></pre>
 
           <div class="faq-item">
             <h3>What is NioAtom and why is it the default model?</h3>
-            <p>NioAtom (<code>nioxs::nio-atom</code>) is our purpose-built coding model tuned specifically for autonomous multi-file refactoring, atomic diff application, compiler error recovery, and iterative project-level planning. It provides high precision with low latency and optimal token economy.</p>
+            <p>NioCuda (<code>nioxs::nio-cuda</code>) is our purpose-built conductor model tuned specifically for autonomous multi-file refactoring, atomic diff application, compiler error recovery, and iterative project-level planning. It provides high precision with low latency and optimal token economy.</p>
           </div>
 
           <div class="faq-item">

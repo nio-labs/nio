@@ -38,7 +38,7 @@ During any interactive Nio session in your terminal, type `:` to trigger the com
 
 ### 2. Models, Providers & Reasoning
 
-* **`:model`** — Interactive fuzzy model picker. Switch between NioAtom (`nioxs::nio-atom`), Claude 3.7 Sonnet, GPT-4o, Gemini 2.0 Flash, DeepSeek R1, Groq, or local Ollama.
+* **`:model`** — Interactive fuzzy model picker. Switch between NioCuda (`nioxs::nio-cuda`), Claude 3.7 Sonnet, GPT-4o, Gemini 2.0 Flash, DeepSeek R1, Groq, or local Ollama.
 * **`:provider`** — Configure AI gateways, API credentials, endpoints, and custom OpenAI-compatible proxies.
 * **`:reasoning`** — Configure thinking budget / reasoning effort (`off`, `low`, `medium`, `high`) for reasoning models.
 
