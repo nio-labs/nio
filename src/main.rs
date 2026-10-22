@@ -328,7 +328,23 @@ struct StreamDelta {
     #[serde(default)]
     reasoning_content: Option<String>,
     #[serde(default)]
+    reasoning: Option<String>,
+    #[serde(default)]
+    thinking: Option<String>,
+    #[serde(default)]
+    thinking_text: Option<String>,
+    #[serde(default)]
     tool_calls: Vec<StreamToolCall>,
+}
+
+impl StreamDelta {
+    fn reasoning(&self) -> Option<&str> {
+        self.reasoning_content
+            .as_deref()
+            .or(self.reasoning.as_deref())
+            .or(self.thinking.as_deref())
+            .or(self.thinking_text.as_deref())
+    }
 }
 
 #[derive(Deserialize)]
@@ -4477,11 +4493,153 @@ fn legacy_unverified_flow_answer(answer: &str) -> bool {
         && answer.contains("NioFlow stopped without dispatching further tools.")
 }
 
+fn emit_stream_content(
+    options: &Options,
+    answer: &str,
+    emitted_len: &mut usize,
+    emitted_thinking_len: &mut usize,
+    response_started: &mut bool,
+    formatter: &mut MarkdownFormatter,
+) -> Result<(), String> {
+    let open_tag = if let Some(pos) = answer.find("<thinking>") {
+        Some(("<thinking>", "</thinking>", pos))
+    } else if let Some(pos) = answer.find("<thought>") {
+        Some(("<thought>", "</thought>", pos))
+    } else {
+        None
+    };
+
+    if let Some((open, close, open_pos)) = open_tag {
+        let thought_start = open_pos + open.len();
+        if let Some(close_rel) = answer[thought_start..].find(close) {
+            let close_pos = thought_start + close_rel;
+            let after_close = close_pos + close.len();
+
+            if close_pos > thought_start && close_pos > *emitted_thinking_len {
+                let from = (*emitted_thinking_len).max(thought_start);
+                let to_emit = &answer[from..close_pos];
+                if !to_emit.is_empty() {
+                    emit_thinking(options, to_emit)?;
+                }
+                *emitted_thinking_len = close_pos;
+            }
+
+            if answer.len() > after_close {
+                let content_slice = &answer[after_close..];
+                let mut leak_start = None;
+                let mut check_from = 0;
+                while let Some(idx) = content_slice[check_from..].find('<') {
+                    let tail = &content_slice[check_from + idx..];
+                    for prefix in [
+                        "<tool_call",
+                        "<function=",
+                        "<function_call",
+                        "<function name=",
+                        "<|tool_call",
+                        "<thinking",
+                        "<thought",
+                    ] {
+                        if tail.starts_with(prefix) || prefix.starts_with(tail) {
+                            leak_start = Some(check_from + idx);
+                            break;
+                        }
+                    }
+                    if leak_start.is_some() {
+                        break;
+                    }
+                    check_from += idx + 1;
+                }
+                let allowed_len = leak_start.unwrap_or(content_slice.len());
+                if allowed_len > *emitted_len {
+                    let to_emit = &content_slice[*emitted_len..allowed_len];
+                    let formatted = formatter.push(to_emit);
+                    if !formatted.is_empty() {
+                        let clean = strip_terminal_ansi(&formatted);
+                        let trimmed = clean.trim();
+                        if !*response_started && !trimmed.is_empty() {
+                            emit_assistant_start(options)?;
+                            *response_started = true;
+                        }
+                        emit_text(options, &formatted)?;
+                        if inline_queue::is_stage_banner(trimmed) {
+                            restart_active_spinner(options, "Thinking");
+                        }
+                    }
+                    *emitted_len = allowed_len;
+                }
+            }
+        } else {
+            let tail = &answer[thought_start..];
+            let mut partial = None;
+            for i in 1..close.len() {
+                if tail.ends_with(&close[..i]) {
+                    partial = Some(answer.len() - i);
+                    break;
+                }
+            }
+            let end = partial.unwrap_or(answer.len());
+            if end > thought_start && end > *emitted_thinking_len {
+                let from = (*emitted_thinking_len).max(thought_start);
+                let to_emit = &answer[from..end];
+                if !to_emit.is_empty() {
+                    emit_thinking(options, to_emit)?;
+                }
+                *emitted_thinking_len = end;
+            }
+        }
+    } else {
+        let mut leak_start = None;
+        let mut check_from = 0;
+        while let Some(idx) = answer[check_from..].find('<') {
+            let tail = &answer[check_from + idx..];
+            for prefix in [
+                "<tool_call",
+                "<function=",
+                "<function_call",
+                "<function name=",
+                "<|tool_call",
+                "<thinking",
+                "<thought",
+            ] {
+                if tail.starts_with(prefix) || prefix.starts_with(tail) {
+                    leak_start = Some(check_from + idx);
+                    break;
+                }
+            }
+            if leak_start.is_some() {
+                break;
+            }
+            check_from += idx + 1;
+        }
+
+        let allowed_len = leak_start.unwrap_or(answer.len());
+        if allowed_len > *emitted_len {
+            let to_emit = &answer[*emitted_len..allowed_len];
+            let formatted = formatter.push(to_emit);
+            if !formatted.is_empty() {
+                let clean = strip_terminal_ansi(&formatted);
+                let trimmed = clean.trim();
+                if !*response_started && !trimmed.is_empty() {
+                    emit_assistant_start(options)?;
+                    *response_started = true;
+                }
+                emit_text(options, &formatted)?;
+                if inline_queue::is_stage_banner(trimmed) {
+                    restart_active_spinner(options, "Thinking");
+                }
+            }
+            *emitted_len = allowed_len;
+        }
+    }
+    Ok(())
+}
+
 fn process_sse_line(
     line: &str,
     options: &Options,
     answer: &mut String,
     emitted_len: &mut usize,
+    emitted_thinking_len: &mut usize,
     tools: &mut std::collections::BTreeMap<usize, PendingToolCall>,
     response_started: &mut bool,
     formatter: &mut MarkdownFormatter,
@@ -4511,9 +4669,10 @@ fn process_sse_line(
         if choice.index != 0 {
             continue;
         }
-        if choice.delta.reasoning_content.is_some() {
-            emit_status(options, "thinking", "Thinking");
-            restart_active_spinner(options, "Thinking");
+        if let Some(reasoning) = choice.delta.reasoning() {
+            if !reasoning.is_empty() {
+                emit_thinking(options, reasoning)?;
+            }
         }
         if let Some(reason) = choice.finish_reason {
             *finished = Some(reason);
@@ -4524,46 +4683,14 @@ fn process_sse_line(
             }
             answer.push_str(&content);
 
-            let mut leak_start = None;
-            let mut check_from = 0;
-            while let Some(idx) = answer[check_from..].find('<') {
-                let tail = &answer[check_from + idx..];
-                for prefix in [
-                    "<tool_call",
-                    "<function=",
-                    "<function_call",
-                    "<function name=",
-                    "<|tool_call",
-                ] {
-                    if tail.starts_with(prefix) || prefix.starts_with(tail) {
-                        leak_start = Some(check_from + idx);
-                        break;
-                    }
-                }
-                if leak_start.is_some() {
-                    break;
-                }
-                check_from += idx + 1;
-            }
-
-            let allowed_len = leak_start.unwrap_or(answer.len());
-            if allowed_len > *emitted_len {
-                let to_emit = &answer[*emitted_len..allowed_len];
-                let formatted = formatter.push(to_emit);
-                if !formatted.is_empty() {
-                    let clean = strip_terminal_ansi(&formatted);
-                    let trimmed = clean.trim();
-                    if !*response_started && !trimmed.is_empty() {
-                        emit_assistant_start(options)?;
-                        *response_started = true;
-                    }
-                    emit_text(options, &formatted)?;
-                    if inline_queue::is_stage_banner(trimmed) {
-                        restart_active_spinner(options, "Thinking");
-                    }
-                }
-                *emitted_len = allowed_len;
-            }
+            emit_stream_content(
+                options,
+                answer,
+                emitted_len,
+                emitted_thinking_len,
+                response_started,
+                formatter,
+            )?;
         }
         for partial in choice.delta.tool_calls {
             if partial.index >= TOOL_LIMIT
@@ -4698,6 +4825,39 @@ fn process_json_completion(
     Ok(())
 }
 
+static THINKING_STREAMING: AtomicBool = AtomicBool::new(false);
+
+fn emit_thinking(options: &Options, text: &str) -> Result<(), String> {
+    if text.is_empty() {
+        return Ok(());
+    }
+    if options.json_output {
+        emit_json(&json!({
+            "type": "thinking",
+            "part": {
+                "type": "thinking",
+                "text": text
+            }
+        }));
+    } else {
+        let newline = if options.command == "interactive" || io::stdout().is_terminal() {
+            "\r\n"
+        } else {
+            "\n"
+        };
+        if !THINKING_STREAMING.swap(true, Ordering::SeqCst) {
+            pause_active_spinner();
+            eprint!("\r\x1b[2K\x1b[2m💭 Thinking:\x1b[0m{newline}");
+            let _ = io::stderr().flush();
+        }
+        let mut stdout = io::stdout().lock();
+        let formatted = format!("\x1b[2;3m{}\x1b[0m", text.replace("\r\n", "\n").replace('\n', newline));
+        let _ = stdout.write_all(formatted.as_bytes());
+        let _ = stdout.flush();
+    }
+    Ok(())
+}
+
 fn emit_assistant_start(options: &Options) -> Result<(), String> {
     pause_active_spinner();
     if !options.json_output {
@@ -4708,6 +4868,9 @@ fn emit_assistant_start(options: &Options) -> Result<(), String> {
         } else {
             "\n"
         };
+        if THINKING_STREAMING.swap(false, Ordering::SeqCst) {
+            print!("{newline}\x1b[2m✔ Thought completed\x1b[0m{newline}");
+        }
         print!("{newline}{ASSISTANT_PREFIX}");
         io::stdout()
             .flush()
@@ -6754,6 +6917,7 @@ async fn run_agent_turn_inner(
             let mut received = 0usize;
             let mut finished = None;
             let mut emitted_len = 0usize;
+            let mut emitted_thinking_len = 0usize;
             while let Some(part) = stream.next().await {
                 let bytes = part.map_err(|e| format!("response stream failed: {e}"))?;
                 received = received.saturating_add(bytes.len());
@@ -6771,6 +6935,7 @@ async fn run_agent_turn_inner(
                         options,
                         &mut answer,
                         &mut emitted_len,
+                        &mut emitted_thinking_len,
                         &mut pending_tools,
                         &mut response_started,
                         &mut formatter,
@@ -6787,6 +6952,7 @@ async fn run_agent_turn_inner(
                     options,
                     &mut answer,
                     &mut emitted_len,
+                    &mut emitted_thinking_len,
                     &mut pending_tools,
                     &mut response_started,
                     &mut formatter,
@@ -14246,6 +14412,7 @@ mod unverified_flow_retry_tests {
         let options = default_options("run");
         let mut answer = String::new();
         let mut emitted = 0;
+        let mut emitted_thinking = 0;
         let mut tools = std::collections::BTreeMap::new();
         let mut started = false;
         let mut formatter = MarkdownFormatter::new(false);
@@ -14260,6 +14427,7 @@ mod unverified_flow_retry_tests {
                 &options,
                 &mut answer,
                 &mut emitted,
+                &mut emitted_thinking,
                 &mut tools,
                 &mut started,
                 &mut formatter,

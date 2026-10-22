@@ -703,7 +703,7 @@ struct UndoJournal {
     entries: Vec<BackupEntry>,
 }
 
-const UNDO_LIMIT: usize = 8 * 1024 * 1024;
+const UNDO_LIMIT: usize = 32 * 1024 * 1024;
 
 fn undo_path(root: &Path) -> Result<PathBuf, String> {
     // Stable FNV-1a identifies the path across Rust/toolchain upgrades. The

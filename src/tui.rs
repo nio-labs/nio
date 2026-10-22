@@ -612,6 +612,22 @@ impl State {
                     entry.text.push_str(text);
                     entry.revision += 1;
                 }
+                Some("thinking") => {
+                    let text = event["part"]["text"].as_str().unwrap_or_default();
+                    if !text.is_empty() {
+                        let snippet = text.lines().last().unwrap_or(text).trim();
+                        if !snippet.is_empty() {
+                            self.notice = format!("Thinking: {snippet}");
+                        }
+                        self.progress_active = true;
+                        if let Some(entry) = self.entries.iter_mut().rev().find(|e| e.role == "Thinking") {
+                            entry.text.push_str(text);
+                            entry.revision += 1;
+                        } else {
+                            self.add("Thinking", text);
+                        }
+                    }
+                }
                 Some("reasoning") => {
                     let text = event["part"]["text"]
                         .as_str()

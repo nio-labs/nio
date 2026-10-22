@@ -152,6 +152,7 @@ struct Live {
     status_started: Instant,
     response_started: bool,
     thinking: bool,
+    thinking_started: bool,
     last_frame: Instant,
     pending: String,
     formatter: Option<MarkdownFormatter>,
@@ -394,6 +395,28 @@ impl Live {
             .get_or_insert_with(|| MarkdownFormatter::new(true))
             .push(text);
         self.append_formatted(&formatted, false)
+    }
+    fn stream_thinking(&mut self, text: &str) -> Result<(), String> {
+        if text.is_empty() {
+            return Ok(());
+        }
+        if !self.thinking_started {
+            self.thinking_started = true;
+            self.commit("\x1b[2m💭 Thinking:\x1b[0m\r\n")?;
+        }
+        let formatted = format!("\x1b[2m{}\x1b[0m", text.replace("\r\n", "\n").replace('\n', "\r\n"));
+        self.commit(&formatted)?;
+
+        let clean = text.trim();
+        if !clean.is_empty() {
+            let last = clean.lines().last().unwrap_or(clean).trim();
+            if !last.is_empty() {
+                let snippet: String = last.chars().take(45).collect();
+                self.status = format!("Thinking: {snippet}");
+            }
+        }
+        self.thinking = true;
+        Ok(())
     }
     fn draw(&mut self) -> Result<(), String> {
         let (width, height) = terminal::size().unwrap_or((80, 24));
@@ -820,6 +843,7 @@ pub async fn run(
         status_started: Instant::now(),
         response_started: false,
         thinking: true,
+        thinking_started: false,
         last_frame: Instant::now(),
         pending: String::new(),
         formatter: None,
@@ -838,20 +862,33 @@ pub async fn run(
         for event in receiver.try_iter() {
             dirty = true;
             match event["type"].as_str() {
-                Some("text") => live.stream(event["part"]["text"].as_str().unwrap_or_default())?,
+                Some("text") => {
+                    if live.thinking_started {
+                        live.thinking_started = false;
+                        live.commit("\r\n\x1b[2m✔ Thought completed\x1b[0m\r\n\r\n")?;
+                    }
+                    live.stream(event["part"]["text"].as_str().unwrap_or_default())?;
+                }
+                Some("thinking") => {
+                    live.stream_thinking(event["part"]["text"].as_str().unwrap_or_default())?;
+                }
                 Some("reasoning") => {
                     let text = event["part"]["text"].as_str().unwrap_or("Working");
                     let (kind, message) = text.split_once(": ").unwrap_or(("working", text));
-                    let status = if matches!(kind, "thinking" | "exploring" | "working") {
-                        message.to_string()
+                    if kind == "thinking" && message != "Thinking" && message != "Thinking…" {
+                        live.stream_thinking(message)?;
                     } else {
-                        format!("[{kind}] {message}")
-                    };
-                    if live.status != status {
-                        live.status = status;
-                        live.status_started = Instant::now();
+                        let status = if matches!(kind, "thinking" | "exploring" | "working") {
+                            message.to_string()
+                        } else {
+                            format!("[{kind}] {message}")
+                        };
+                        if live.status != status {
+                            live.status = status;
+                            live.status_started = Instant::now();
+                        }
+                        live.thinking = true;
                     }
-                    live.thinking = true;
                 }
                 Some("status") => {
                     let message = event["message"].as_str().unwrap_or("Working").to_string();
@@ -861,6 +898,10 @@ pub async fn run(
                     live.status = message;
                 }
                 Some("tool_use") => {
+                    if live.thinking_started {
+                        live.thinking_started = false;
+                        live.commit("\r\n\x1b[2m✔ Thought completed\x1b[0m\r\n\r\n")?;
+                    }
                     let part = &event["part"];
                     let state = part["state"]["status"].as_str().unwrap_or_default();
                     if matches!(state, "completed" | "error") {
@@ -929,6 +970,10 @@ pub async fn run(
                     live.draw()?;
                 }
                 Some("inline_complete") => {
+                    if live.thinking_started {
+                        live.thinking_started = false;
+                        live.commit("\r\n")?;
+                    }
                     elapsed = started.elapsed();
                     *history = event["history"].as_array().cloned().unwrap_or_default();
                     live.flush_partial(false)?;
