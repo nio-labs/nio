@@ -7296,7 +7296,10 @@ async fn fetch_model_choices(options: &Options) -> Result<Vec<ModelChoice>, Stri
     }
     // Guarantee all official NioXS models are present even if gateway returned partial catalog
     for builtin in builtin_nioxs_model_choices() {
-        if !choices.iter().any(|c| c.gateway == "nioxs" && c.id == builtin.id) {
+        if !choices
+            .iter()
+            .any(|c| c.gateway == "nioxs" && c.id == builtin.id)
+        {
             choices.push(builtin);
         }
     }
