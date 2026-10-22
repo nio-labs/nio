@@ -21,7 +21,7 @@
     <a href="#overview" class="brand-title">
       <img class="brand-logo" src="logo.svg" alt="NioAI logo">
       <span class="brand-name">NioAI</span>
-      <span class="badge">v0.3.10</span>
+      <span class="badge">v0.3.11</span>
     </a>
     <button class="theme-toggle-btn" type="button" aria-label="Toggle theme">
       <span class="theme-icon">
@@ -46,7 +46,7 @@
           <div class="nav-section-title">Getting Started</div>
           <a href="#overview" class="nav-link active">Overview</a>
           <a href="#quickstart" class="nav-link">Quickstart</a>
-          <a href="#bundled-xs" class="nav-link">Bundled NioXS &amp; NioAtom</a>
+          <a href="#bundled-xs" class="nav-link">NioXS Companion &amp; MicroLMs</a>
           <a href="#modes" class="nav-link">Agent Modes</a>
         </div>
         <div class="nav-section">
@@ -83,13 +83,13 @@
         <section id="overview" class="doc-section">
           <div class="hero-header">
             <div class="hero-badges">
-              <span class="badge badge-accent">Release v0.3.10</span>
-              <span class="badge">Bundled NioXS &amp; NioAtom</span>
+              <span class="badge badge-accent">Release v0.3.11</span>
+              <span class="badge">NioXS Companion &amp; MicroLMs</span>
               <span class="badge">Rust Native</span>
               <span class="badge">Zero Telemetry</span>
             </div>
-            <h1 class="hero-title">The autonomous terminal coding agent, bundled with your companion gateway.</h1>
-            <p class="hero-desc">NioAI is a lightweight, blazing-fast AI coding companion that runs entirely from your command line. Pre-bundled with NioXS companion gateway and default NioAtom reasoning, NioAI automates multi-file edits, compiler repairs, code navigation, and test validation with zero telemetry and total data privacy.</p>
+            <h1 class="hero-title">The autonomous terminal coding agent, companion to NioXS &amp; MicroLMs.</h1>
+            <p class="hero-desc">NioAI is a lightweight, blazing-fast terminal companion for NioXS. Engineered specifically to interface with our sovereign MicroLM (µLM) predator fleet (NioCuda, NioRay, NioViper, NioManta, NioNano, NioMicro, NioMask, NioMini), NioAI delivers sub-10ms DAG planning, electric keystroke code generation, and multi-file refactoring with zero telemetry and sub-20MB client memory.</p>
             <div class="capsule-actions">
               <a class="capsule-button" href="#quickstart">Get started →</a>
               <a class="capsule-button capsule-button-secondary" href="https://github.com/nio-labs/nio" target="_blank" rel="noreferrer">View on GitHub</a>
@@ -99,11 +99,11 @@
           <div class="card-grid" style="margin-top: 32px;">
             <div class="card">
               <h3>⚡ Zero Manual Setup</h3>
-              <p>NioXS and NioDB are pre-bundled. Running <code>nio</code> automatically ensures the companion gateway is live, starts NioAtom reasoning, and handles turn orchestration with zero extra steps.</p>
+              <p>NioXS and NioDB are pre-bundled. Running <code>nio</code> automatically ensures the companion gateway is live, starts NioCuda swarm conductor, and handles turn orchestration with zero extra steps.</p>
             </div>
             <div class="card">
-              <h3>🧠 NioAtom Autonomous Coder</h3>
-              <p>Default model is set to <code>nioxs::nio-cuda</code>, purpose-built for iterative planning, atomic multi-file refactoring, diagnostics recovery, and syntax verification.</p>
+              <h3>🧠 MicroLM Swarm Intelligence</h3>
+              <p>Default model is set to <code>nioxs::nio-cuda</code> (Tactical Swarm Conductor), orchestrating high-speed MicroLM specialists across your project within strictly bounded memory budgets (< 160MB RAM).</p>
             </div>
             <div class="card">
               <h3>🛡️ Transactional File Safety</h3>
@@ -156,8 +156,8 @@ nio "Explain project architecture"</code></pre>
         <!-- BUNDLED NIOXS & NIOATOM -->
         <section id="bundled-xs" class="doc-section">
           <div class="section-header">
-            <h2>Bundled NioXS &amp; NioAtom</h2>
-            <p>NioAI and NioXS work as a unified pairing. NioAI is your interactive terminal agent, while NioXS serves as the intelligent companion gateway.</p>
+            <h2>NioXS Companion &amp; MicroLM Fleet</h2>
+            <p>NioAI and NioXS work as a unified pairing. NioAI is your interactive terminal agent and cockpit, while NioXS serves as the intelligent companion gateway orchestrating our sovereign MicroLM family.</p>
           </div>
 
           <div class="card" style="margin-bottom: 24px;">
@@ -185,8 +185,8 @@ nio "Explain project architecture"</code></pre>
                 <td>Auto-spawned on port 7460</td>
               </tr>
               <tr>
-                <td><strong>NioAtom</strong></td>
-                <td>Default autonomous coding model (<code>nioxs::nio-cuda</code>)</td>
+                <td><strong>NioCuda &amp; MicroLM Fleet</strong></td>
+                <td>Tactical Swarm Conductor (<code>nioxs::nio-cuda</code>) orchestrating local MicroLMs (&lt; 160MB RAM)</td>
                 <td>Default model selector</td>
               </tr>
               <tr>

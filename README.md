@@ -21,13 +21,14 @@
 ## Why NioAI?
 
 - ⚡ **Blazing Fast Startup (<10ms)**: Built in native Rust. Starts instantly in your terminal without the startup lag or runtime tax of Python, Node.js, or Electron.
-- 🪶 **Ultra-Lightweight Footprint**: Consumes under ~20MB of RAM. Keep it running in the background without draining your battery or hogging CPU.
+- 🦈 **Official Companion to NioXS & MicroLM Fleet**: Purpose-engineered as the interactive terminal companion for [**NioXS**](https://github.com/nio-labs/nio-xs). Natively orchestrates the sovereign **MicroLM (µLM)** predator family (`nio-cuda`, `nio-ray`, `nio-viper`, `nio-manta`, `nio-nano`, `nio-micro`, `nio-mask`, `nio-mini`) — delivering sub-10ms DAG planning, electric keystroke code generation, and deep AST linting in strictly under 50–160 MB of resident RAM.
+- 🪶 **Ultra-Lightweight Footprint**: Consumes under ~20MB of client RAM. Keep it running continuously in background sessions without battery drain or CPU throttling.
 - 🎭 **Custom Persona & Built-In Presets**: Give Nio an identity, custom name, gender & pronouns, and tailored behavioral guidelines (`:persona`). Includes 10 built-in presets (BFF, Partner, Ex, Senior Architect, Staff Rustacean, etc.) with an interactive picker.
 - 📎 **Multimodal Audio & Document Support**: Ingest audio files, PDFs, spreadsheets, and schemas directly into your context.
 - 🛡️ **Atomic Undo & Local Reliability**: Every file change is backed by an atomic journal with instant rollback (`:undo`). Never lose code to an unexpected model hallucination.
-- 🔌 **Universal Provider Support & Failover**: Works out of the box with any OpenAI-compatible provider (OpenRouter, Groq, Cerebras, Claude, OpenAI, Gemini, DeepSeek, or local Ollama). Automatically offers failover when a provider drops.
+- 🔌 **Universal Provider Support & Failover**: Works out of the box with the local NioXS companion gateway or any OpenAI-compatible provider (OpenRouter, Groq, Cerebras, Claude, OpenAI, Gemini, DeepSeek, or local Ollama). Automatically offers failover when a provider drops.
 - 🎨 **Dual Terminal Interface**: Use the distraction-free inline CLI with non-blocking message queuing (`queue>`) or switch to the full-screen, themeable terminal TUI (`nio --tui`).
-- 🔒 **Privacy-First**: Zero telemetry, zero analytics, zero external logging. Your API keys, code, and session history remain 100% on your local machine.
+- 🔒 **Privacy-First & Sovereign**: Zero telemetry, zero analytics, zero external logging. Your API keys, code, and session history remain 100% on your local machine.
 
 ---
 
