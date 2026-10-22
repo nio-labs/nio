@@ -109,6 +109,20 @@ try {
         Write-Host "Note: NioXS can be run anytime via 'npx @nio-labs/nio-xs' or 'nio xs'" -ForegroundColor Yellow
     }
 
+    # Bundle NioDB state engine for NioXS
+    $DestNioDb = Join-Path $InstallDir "niodb.exe"
+    if (!(Test-Path $DestNioDb) -and !(Get-Command niodb -ErrorAction SilentlyContinue)) {
+        Write-Host "==> Bundling NioDB sovereign state engine..." -ForegroundColor Cyan
+        $DbArch = if ($Arch -eq "X64") { "x64" } else { "arm64" }
+        $NioDbUrl = "https://github.com/nio-labs/nio-db/releases/latest/download/niodb-win32-$DbArch.exe"
+        try {
+            Invoke-WebRequest -Uri $NioDbUrl -OutFile $DestNioDb -TimeoutSec 120
+            Write-Host "==> Installed niodb.exe to $DestNioDb" -ForegroundColor Green
+        } catch {
+            Write-Host "Note: Automatic NioDB download deferred ($($_.Exception.Message))" -ForegroundColor Yellow
+        }
+    }
+
     # 5. Path check
     $UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
     if ($UserPath -notlike "*$InstallDir*") {

@@ -181,6 +181,28 @@ if [ -z "${NIO_NO_NIOXS:-}" ] && command -v curl >/dev/null 2>&1; then
             echo "✅ Installed nioxs to $INSTALL_DIR/nioxs"
         fi
     fi
+
+    # Bundle NioDB state engine for NioXS
+    if [ ! -f "$INSTALL_DIR/niodb" ] && ! command -v niodb >/dev/null 2>&1; then
+        echo "📦 Bundling NioDB sovereign state engine..."
+        NIODB_OS="$NIOXS_OS"
+        NIODB_ARCH="x64"
+        if [ "$NIOXS_ARCH" = "arm64" ]; then
+            NIODB_ARCH="arm64"
+        fi
+        NIODB_URL="https://github.com/nio-labs/nio-db/releases/latest/download/niodb-${NIODB_OS}-${NIODB_ARCH}"
+        if curl --connect-timeout 10 --max-time 120 -fsSL "$NIODB_URL" -o "$TMP_DIR/niodb" 2>/dev/null; then
+            if [ -s "$TMP_DIR/niodb" ]; then
+                chmod +x "$TMP_DIR/niodb"
+                cp -f "$TMP_DIR/niodb" "$INSTALL_DIR/niodb"
+                if [ "$PLATFORM" = "apple-darwin" ]; then
+                    xattr -cr "$INSTALL_DIR/niodb" 2>/dev/null || true
+                    codesign --force --deep -s - "$INSTALL_DIR/niodb" 2>/dev/null || true
+                fi
+                echo "✅ Installed niodb to $INSTALL_DIR/niodb"
+            fi
+        fi
+    fi
 fi
 
 # 7. Verify installation & PATH check

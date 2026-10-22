@@ -1189,9 +1189,70 @@ fn auto_install_nioxs() -> Option<PathBuf> {
 
     if target_path.is_file() {
         eprintln!("✅ Installed NioXS to {}", target_path.display());
+        auto_install_niodb(&bin_dir);
         Some(target_path)
     } else {
         None
+    }
+}
+
+fn auto_install_niodb(bin_dir: &Path) {
+    let is_windows = cfg!(target_os = "windows");
+    let niodb_name = if is_windows { "niodb.exe" } else { "niodb" };
+    let target_path = bin_dir.join(niodb_name);
+    if target_path.is_file() {
+        return;
+    }
+
+    let os_str = if cfg!(target_os = "macos") {
+        "darwin"
+    } else if is_windows {
+        "win32"
+    } else {
+        "linux"
+    };
+
+    let arch_str = if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else {
+        "x64"
+    };
+
+    let ext = if is_windows { ".exe" } else { "" };
+    let asset = format!("niodb-{os_str}-{arch_str}{ext}");
+    let url = format!("https://github.com/nio-labs/nio-db/releases/latest/download/{asset}");
+
+    eprintln!("📦 Auto-installing NioDB sovereign state engine ({asset})...");
+    if is_windows {
+        let script = format!(
+            "Invoke-WebRequest -Uri '{url}' -OutFile '{}'",
+            target_path.display()
+        );
+        let _ = std::process::Command::new("powershell")
+            .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+            .output();
+    } else {
+        let _ = std::process::Command::new("curl")
+            .args([
+                "--connect-timeout",
+                "10",
+                "--max-time",
+                "120",
+                "-fsSL",
+                &url,
+                "-o",
+                target_path.to_str().unwrap_or(""),
+            ])
+            .output();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&target_path, std::fs::Permissions::from_mode(0o755));
+        }
+    }
+
+    if target_path.is_file() {
+        eprintln!("✅ Installed NioDB to {}", target_path.display());
     }
 }
 
