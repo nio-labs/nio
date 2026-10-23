@@ -3048,6 +3048,138 @@ fn project_overview(root: &Path) -> String {
     truncate(&output, 20_000)
 }
 
+fn microlm_project_overview(root: &Path) -> String {
+    let mut entries = Vec::new();
+    if let Ok(dir) = std::fs::read_dir(root) {
+        for entry in dir.flatten() {
+            let file_name = entry.file_name();
+            let name = file_name.to_string_lossy();
+            if name.starts_with('.') || name == "target" || name == "node_modules" || name == "__pycache__" {
+                continue;
+            }
+            if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                entries.push(format!("{name}/"));
+            } else {
+                entries.push(name.to_string());
+            }
+        }
+    }
+    entries.sort();
+    let total_entries = entries.len();
+    if entries.len() > 8 {
+        entries.truncate(8);
+        entries.push(format!("... (+{} more)", total_entries - 8));
+    }
+    let file_list = if entries.is_empty() {
+        "none".to_string()
+    } else {
+        entries.join(", ")
+    };
+
+    let mut project_name = None;
+    let mut project_version = None;
+    let mut manifest_type = None;
+
+    for manifest_name in ["pyproject.toml", "Cargo.toml", "package.json"] {
+        let manifest_path = root.join(manifest_name);
+        if manifest_path.is_file() {
+            if let Ok(b) = read_bounded(&manifest_path, 4096) {
+                if let Ok(s) = String::from_utf8(b) {
+                    manifest_type = Some(manifest_name);
+                    for line in s.lines() {
+                        let trimmed = line.trim();
+                        if project_name.is_none()
+                            && (trimmed.starts_with("name =") || trimmed.starts_with("\"name\":"))
+                        {
+                            let val = trimmed
+                                .split(['=', ':'])
+                                .nth(1)
+                                .unwrap_or("")
+                                .trim()
+                                .trim_matches(|c| c == '"' || c == '\'' || c == ',');
+                            if !val.is_empty() {
+                                project_name = Some(val.to_string());
+                            }
+                        }
+                        if project_version.is_none()
+                            && (trimmed.starts_with("version =")
+                                || trimmed.starts_with("\"version\":"))
+                        {
+                            let val = trimmed
+                                .split(['=', ':'])
+                                .nth(1)
+                                .unwrap_or("")
+                                .trim()
+                                .trim_matches(|c| c == '"' || c == '\'' || c == ',');
+                            if !val.is_empty() {
+                                project_version = Some(val.to_string());
+                            }
+                        }
+                        if project_name.is_some() && project_version.is_some() {
+                            break;
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    let mut info = format!("\n\nProject root: {}\nRoot files/folders: {}", root.display(), file_list);
+    if let (Some(name), Some(ver)) = (project_name, project_version) {
+        info.push_str(&format!(
+            "\nProject name: {name}\nProject version: {ver} (defined in {})",
+            manifest_type.unwrap_or("manifest")
+        ));
+    } else if let Some(m_type) = manifest_type {
+        info.push_str(&format!("\nProject manifest: {m_type}"));
+    }
+    info
+}
+
+fn should_attach_microlm_tools(prompt: &str) -> bool {
+    let lower = prompt.trim().to_ascii_lowercase();
+    if lower.is_empty() {
+        return false;
+    }
+    let is_question_or_conversation = lower.starts_with("what is")
+        || lower.starts_with("what's")
+        || lower.starts_with("whats")
+        || lower.starts_with("why ")
+        || lower.starts_with("explain")
+        || lower.starts_with("define")
+        || lower.starts_with("tell me about")
+        || lower.starts_with("who is")
+        || lower.starts_with("hi")
+        || lower.starts_with("hello")
+        || lower.starts_with("hey")
+        || lower.starts_with("give me a snippet")
+        || lower.starts_with("write a snippet")
+        || lower.starts_with("write a function")
+        || lower.starts_with("how to write");
+
+    if is_question_or_conversation {
+        return lower.contains("in this project")
+            || lower.contains("in this repo")
+            || lower.contains(".rs")
+            || lower.contains(".py")
+            || lower.contains(".toml")
+            || lower.contains(".json")
+            || lower.contains(".js")
+            || lower.contains(".ts")
+            || lower.contains(".go");
+    }
+
+    let action_keywords = [
+        "read", "open", "view", "find", "search", "grep", "list",
+        "run", "exec", "build", "test", "cargo", "pytest", "npm",
+        "file", "folder", "directory", "inspect", "check", "fix",
+        "patch", "edit", "create", "delete", "remove",
+    ];
+
+    action_keywords.iter().any(|&kw| lower.contains(kw))
+}
+
 fn collect_files(root: &Path, dir: &Path, depth: usize, output: &mut Vec<String>, limit: usize) {
     let mut visited = 0;
     let mut ignore_budget = 256 * 1024;
@@ -3285,6 +3417,7 @@ struct MarkdownFormatter {
     in_blockquote: bool,
     at_line_start: bool,
     code_line_buffer: String,
+    code_column: usize,
     table_candidate: Option<String>,
     table_lines: Vec<String>,
     word_buffer: String,
@@ -3558,6 +3691,7 @@ impl MarkdownFormatter {
             in_blockquote: false,
             at_line_start: true,
             code_line_buffer: String::new(),
+            code_column: 0,
             table_candidate: None,
             table_lines: Vec::new(),
             word_buffer: String::new(),
@@ -3661,12 +3795,17 @@ impl MarkdownFormatter {
             self.code_line_buffer.clear();
         }
         if self.in_code_block {
+            if !self.at_line_start {
+                output.push_str("\r\n");
+            }
             let width = code_block_width(self.wrap_width);
             output.push_str(&format!(
                 "\x1b[38;5;244m└{}\x1b[0m\r\n",
                 "─".repeat(width.saturating_sub(1))
             ));
             self.in_code_block = false;
+            self.at_line_start = true;
+            self.code_column = 0;
         }
         if let Some(_) = self.in_heading.take() {
             output.push_str("\x1b[0m");
@@ -3768,66 +3907,141 @@ impl MarkdownFormatter {
             }
 
             if self.in_code_block {
-                if let Some(newline_pos) = self.pending.find('\n') {
-                    let mut line = self.pending.drain(..=newline_pos).collect::<String>();
-                    if line.ends_with('\n') {
-                        line.pop();
-                        if line.ends_with('\r') {
-                            line.pop();
+                if self.at_line_start {
+                    let spaces = self.pending.chars().take_while(|c| *c == ' ').count();
+                    let after_spaces = &self.pending[spaces..];
+                    if !flush_partial
+                        && spaces <= 3
+                        && (after_spaces.is_empty()
+                            || after_spaces == "`"
+                            || after_spaces == "``")
+                    {
+                        break;
+                    }
+                    if after_spaces.starts_with("```") {
+                        if let Some(newline_pos) = self.pending.find('\n') {
+                            self.pending.drain(..=newline_pos);
+                            self.in_code_block = false;
+                            self.at_line_start = true;
+                            self.code_column = 0;
+                            let width = code_block_width(self.wrap_width);
+                            output.push_str(&format!(
+                                "\x1b[38;5;244m└{}\x1b[0m\r\n",
+                                "─".repeat(width.saturating_sub(1))
+                            ));
+                            continue;
+                        } else if flush_partial {
+                            self.pending.clear();
+                            self.in_code_block = false;
+                            self.at_line_start = true;
+                            self.code_column = 0;
+                            let width = code_block_width(self.wrap_width);
+                            output.push_str(&format!(
+                                "\x1b[38;5;244m└{}\x1b[0m\r\n",
+                                "─".repeat(width.saturating_sub(1))
+                            ));
+                            break;
+                        } else {
+                            break;
                         }
                     }
-                    self.code_line_buffer.push_str(&line);
-                    let full_line = std::mem::take(&mut self.code_line_buffer);
-                    if full_line.trim_start().starts_with("```") {
-                        self.in_code_block = false;
+
+                    if self.pending.starts_with('\n') {
+                        self.pending.remove(0);
+                        output.push_str("\x1b[38;5;244m│\x1b[0m\r\n");
                         self.at_line_start = true;
-                        let width = code_block_width(self.wrap_width);
-                        output.push_str(&format!(
-                            "\x1b[38;5;244m└{}\x1b[0m\r\n",
-                            "─".repeat(width.saturating_sub(1))
-                        ));
-                    } else {
-                        output.push_str(&render_code_line(&full_line, self.wrap_width));
+                        self.code_column = 0;
+                        continue;
+                    } else if self.pending.starts_with("\r\n") {
+                        self.pending.drain(..2);
+                        output.push_str("\x1b[38;5;244m│\x1b[0m\r\n");
+                        self.at_line_start = true;
+                        self.code_column = 0;
+                        continue;
                     }
-                    continue;
-                } else if flush_partial {
-                    let line = std::mem::take(&mut self.pending);
-                    self.code_line_buffer.push_str(&line);
-                    let full_line = std::mem::take(&mut self.code_line_buffer);
-                    if full_line.trim_start().starts_with("```") {
-                        self.in_code_block = false;
-                        let width = code_block_width(self.wrap_width);
-                        output.push_str(&format!(
-                            "\x1b[38;5;244m└{}\x1b[0m\r\n",
-                            "─".repeat(width.saturating_sub(1))
-                        ));
-                    } else {
-                        output.push_str(&render_code_line(&full_line, self.wrap_width));
+
+                    output.push_str("\x1b[38;5;244m│\x1b[0m ");
+                    self.at_line_start = false;
+                    self.code_column = 0;
+                }
+
+                let content_width = code_block_width(self.wrap_width).saturating_sub(2).max(1);
+                while !self.pending.is_empty() {
+                    let ch = self.pending.chars().next().unwrap();
+                    if ch == '\r' {
+                        self.pending.remove(0);
+                        continue;
                     }
-                    self.at_line_start = true;
-                    break;
-                } else {
+                    if ch == '\n' {
+                        self.pending.remove(0);
+                        output.push_str("\r\n");
+                        self.at_line_start = true;
+                        self.code_column = 0;
+                        break;
+                    }
+
+                    self.pending.remove(0);
+                    let to_emit = if ch == '\t' { "    " } else { "" };
+                    if !to_emit.is_empty() {
+                        for c in to_emit.chars() {
+                            let cell_width = terminal_char_width(c);
+                            if cell_width > 0
+                                && self.code_column + cell_width > content_width
+                                && self.code_column > 0
+                            {
+                                output.push_str("\r\n\x1b[38;5;244m│\x1b[0m ");
+                                self.code_column = 0;
+                            }
+                            output.push(c);
+                            self.code_column += cell_width;
+                        }
+                    } else {
+                        let cell_width = terminal_char_width(ch);
+                        if cell_width > 0
+                            && self.code_column + cell_width > content_width
+                            && self.code_column > 0
+                        {
+                            output.push_str("\r\n\x1b[38;5;244m│\x1b[0m ");
+                            self.code_column = 0;
+                        }
+                        output.push(ch);
+                        self.code_column += cell_width;
+                    }
+                }
+
+                if self.pending.is_empty() {
                     break;
                 }
+                continue;
             }
 
-            if self.at_line_start && self.pending.starts_with("```") {
-                if let Some(newline_pos) = self.pending.find('\n') {
-                    let header_line = self.pending.drain(..=newline_pos).collect::<String>();
-                    let lang = header_line.trim_start_matches('`').trim().to_string();
-                    let lang_tag = if lang.is_empty() { "code" } else { &lang };
-                    self.in_code_block = true;
-                    let width = code_block_width(self.wrap_width);
-                    let label =
-                        strip_terminal_ansi(&clip_terminal_text(lang_tag, width.saturating_sub(5)));
-                    let fill = width.saturating_sub(terminal_text_width(&label) + 5);
-                    output.push_str(&format!(
-                        "\r\n\x1b[38;5;244m┌─ \x1b[1;36m{label}\x1b[0;38;5;244m ─{}\x1b[0m\r\n",
-                        "─".repeat(fill)
-                    ));
-                    continue;
-                } else if !flush_partial {
+            if self.at_line_start {
+                let spaces = self.pending.chars().take_while(|c| *c == ' ').count();
+                let after_spaces = &self.pending[spaces..];
+                if !flush_partial && (after_spaces == "`" || after_spaces == "``") {
                     break;
+                }
+                if after_spaces.starts_with("```") {
+                    if let Some(newline_pos) = self.pending.find('\n') {
+                        let header_line = self.pending.drain(..=newline_pos).collect::<String>();
+                        let lang = header_line
+                            .trim_start_matches(|c| c == ' ' || c == '`')
+                            .trim()
+                            .to_string();
+                        let lang_tag = if lang.is_empty() { "code" } else { &lang };
+                        self.in_code_block = true;
+                        let width = code_block_width(self.wrap_width);
+                        let label =
+                            strip_terminal_ansi(&clip_terminal_text(lang_tag, width.saturating_sub(5)));
+                        let fill = width.saturating_sub(terminal_text_width(&label) + 5);
+                        output.push_str(&format!(
+                            "\r\n\x1b[38;5;244m┌─ \x1b[1;36m{label}\x1b[0;38;5;244m ─{}\x1b[0m\r\n",
+                            "─".repeat(fill)
+                        ));
+                        continue;
+                    } else if !flush_partial {
+                        break;
+                    }
                 }
             }
 
@@ -4069,6 +4283,10 @@ impl MarkdownFormatter {
                 continue;
             }
 
+            if !flush_partial && (self.pending == "`" || self.pending == "``") {
+                break;
+            }
+
             if self.pending.starts_with('`') && !self.pending.starts_with("```") {
                 self.pending.remove(0);
                 self.in_inline_code = !self.in_inline_code;
@@ -4102,9 +4320,7 @@ impl MarkdownFormatter {
 
             if !flush_partial
                 && (self.pending == "*"
-                    || self.pending == "**"
-                    || self.pending == "`"
-                    || self.pending == "``")
+                    || self.pending == "**")
             {
                 break;
             }
@@ -4505,6 +4721,8 @@ fn emit_stream_content(
         Some(("<thinking>", "</thinking>", pos))
     } else if let Some(pos) = answer.find("<thought>") {
         Some(("<thought>", "</thought>", pos))
+    } else if let Some(pos) = answer.find("<think>") {
+        Some(("<think>", "</think>", pos))
     } else {
         None
     };
@@ -4538,6 +4756,7 @@ fn emit_stream_content(
                         "<|tool_call",
                         "<thinking",
                         "<thought",
+                        "<think",
                     ] {
                         if tail.starts_with(prefix) || prefix.starts_with(tail) {
                             leak_start = Some(check_from + idx);
@@ -4600,6 +4819,7 @@ fn emit_stream_content(
                 "<|tool_call",
                 "<thinking",
                 "<thought",
+                "<think",
             ] {
                 if tail.starts_with(prefix) || prefix.starts_with(tail) {
                     leak_start = Some(check_from + idx);
@@ -4840,20 +5060,7 @@ fn emit_thinking(options: &Options, text: &str) -> Result<(), String> {
             }
         }));
     } else {
-        let newline = if options.command == "interactive" || io::stdout().is_terminal() {
-            "\r\n"
-        } else {
-            "\n"
-        };
-        if !THINKING_STREAMING.swap(true, Ordering::SeqCst) {
-            pause_active_spinner();
-            eprint!("\r\x1b[2K\x1b[2m💭 Thinking:\x1b[0m{newline}");
-            let _ = io::stderr().flush();
-        }
-        let mut stdout = io::stdout().lock();
-        let formatted = format!("\x1b[2;3m{}\x1b[0m", text.replace("\r\n", "\n").replace('\n', newline));
-        let _ = stdout.write_all(formatted.as_bytes());
-        let _ = stdout.flush();
+        THINKING_STREAMING.store(true, Ordering::SeqCst);
     }
     Ok(())
 }
@@ -4869,9 +5076,9 @@ fn emit_assistant_start(options: &Options) -> Result<(), String> {
             "\n"
         };
         if THINKING_STREAMING.swap(false, Ordering::SeqCst) {
-            print!("{newline}\x1b[2m✔ Thought completed\x1b[0m{newline}");
+            print!("\x1b[2m✔ Thought completed\x1b[0m{newline}");
         }
-        print!("{newline}{ASSISTANT_PREFIX}");
+        print!("{ASSISTANT_PREFIX}");
         io::stdout()
             .flush()
             .map_err(|e| format!("writing response label: {e}"))?;
@@ -6478,7 +6685,7 @@ async fn run_agent_turn_inner(
     };
     let overview = if options.project_trusted {
         if is_local_microlm {
-            format!("\n\nProject root: {}", root.display())
+            microlm_project_overview(&root)
         } else {
             format!("\n\nProject overview:\n{}", project_overview(&root))
         }
@@ -6494,14 +6701,19 @@ async fn run_agent_turn_inner(
             plugins::catalog(&skills_base()?)?
         )
     };
+    let attach_tools = !options.no_tools && (!is_local_microlm || should_attach_microlm_tools(prompt));
     let tool_instructions = if is_local_microlm {
-        "\n\nInspect relevant files using read_file, find_files, or search_code when needed."
+        if attach_tools {
+            "\n\nOnly call a tool when file inspection or commands are needed. Answer general coding questions directly without calling tools."
+        } else {
+            ""
+        }
     } else {
         "\n\nWhen calling tools, use only the exact function names supplied in the tools schema and provide their required JSON arguments. Do not append XML tags to function names or use generic tool wrappers. After a tool error, use its feedback to correct the call rather than repeat it. Use web_fetch to read source URLs. When you lack a reliable source URL, ask the user for a URL or explain the limitation; do not invent repository URLs or claim failed fetches provide evidence. Do not end messages with a trailing colon (':') before tool calls; complete statements with a period or call tools directly without introductory text."
     };
     let system_content = if is_local_microlm {
         let base_sys = if options.project_trusted {
-            format!("You are {assistant_name}, a coding assistant working in the project at {}.", root.display())
+            format!("You are {assistant_name}, a helpful and concise coding assistant for this project.")
         } else {
             format!("You are {assistant_name}.")
         };
@@ -6513,7 +6725,7 @@ async fn run_agent_turn_inner(
     // Keep as much prior work as the request budget allows. The old half-budget
     // trim silently discarded useful context before the model ever saw it.
     let history_budget = if is_local_microlm {
-        120
+        4096
     } else {
         CONTEXT_LIMIT
     };
@@ -6752,7 +6964,52 @@ async fn run_agent_turn_inner(
         .as_deref()
         .or(user_config.reasoning_effort.as_deref())
         .filter(|v| *v != "default");
-    let tools = tools_for_turn(options, mode);
+    let tools = if is_local_microlm {
+        if !attach_tools {
+            json!([])
+        } else {
+            json!([
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "read_file",
+                        "description": "Read file contents",
+                        "parameters": {
+                            "type": "object",
+                            "properties": { "path": { "type": "string" } },
+                            "required": ["path"]
+                        }
+                    }
+                },
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "find_files",
+                        "description": "Find files by glob pattern",
+                        "parameters": {
+                            "type": "object",
+                            "properties": { "glob": { "type": "string" } },
+                            "required": ["glob"]
+                        }
+                    }
+                },
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "run_command",
+                        "description": "Run shell command",
+                        "parameters": {
+                            "type": "object",
+                            "properties": { "command": { "type": "string" } },
+                            "required": ["command"]
+                        }
+                    }
+                }
+            ])
+        }
+    } else {
+        tools_for_turn(options, mode)
+    };
     let mut retried_empty_response = false;
     let mut retried_leaked_tool = false;
     let step_limit = user_config
@@ -7572,7 +7829,7 @@ fn configured_proxy_url() -> Result<Option<String>, String> {
 fn build_http_client() -> Result<reqwest::Client, String> {
     let mut builder = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(10))
-        .read_timeout(Duration::from_secs(60))
+        .read_timeout(Duration::from_secs(180))
         .timeout(Duration::from_secs(300));
     if let Some(proxy_url) = configured_proxy_url()? {
         let proxy = reqwest::Proxy::all(&proxy_url).map_err(|_| {
@@ -13965,6 +14222,35 @@ mod markdown_tests {
     }
 
     #[test]
+    fn code_tokens_stream_immediately_without_waiting_for_newline() {
+        let mut formatter = MarkdownFormatter::new(true);
+        formatter.wrap_width = 80;
+        let out = formatter.push("```bash\n");
+        assert!(strip_terminal_ansi(&out).contains("┌─ bash"));
+
+        // Push first token inside code block: NO NEWLINE!
+        let chunk1 = formatter.push("pip");
+        let plain1 = strip_terminal_ansi(&chunk1);
+        assert!(plain1.contains("pip"), "Token 'pip' must be emitted immediately, got: {chunk1:?}");
+        assert!(plain1.starts_with("│ "), "Must have left border with the first token, got: {chunk1:?}");
+
+        // Push second token: still NO newline!
+        let chunk2 = formatter.push(" install");
+        let plain2 = strip_terminal_ansi(&chunk2);
+        assert_eq!(plain2, " install", "Token 'install' must be emitted immediately without borders, got: {chunk2:?}");
+
+        // Push third token: still NO newline!
+        let chunk3 = formatter.push(" requests");
+        let plain3 = strip_terminal_ansi(&chunk3);
+        assert_eq!(plain3, " requests", "Token 'requests' must be emitted immediately, got: {chunk3:?}");
+
+        // Now push newline and closing fence
+        let chunk4 = formatter.push("\n```\n");
+        let plain4 = strip_terminal_ansi(&chunk4);
+        assert!(plain4.contains("└─"), "Must emit bottom border on closing fence, got: {chunk4:?}");
+    }
+
+    #[test]
     fn unfinished_code_lines_and_tabs_stay_inside_the_frame() {
         let mut formatter = MarkdownFormatter::new(true);
         formatter.wrap_width = 30;
@@ -13994,6 +14280,32 @@ mod markdown_tests {
         out.push_str(&formatter.finish());
 
         assert!(out.contains("\x1b[1;34m1. Frontend Layer\x1b[0m"));
+    }
+
+    #[test]
+    fn fenced_code_streams_token_by_token_without_trailing_backtick() {
+        let mut formatter = MarkdownFormatter::new(true);
+        let mut out = String::new();
+        // Simulate streaming tokens one by one:
+        for chunk in [
+            "`", "`", "`", "g", "o", "\n",
+            "package main\n\n",
+            "func main() {\n",
+            "    println(\"hello\")\n",
+            "}\n",
+            "`", "`", "`",
+        ] {
+            out.push_str(&formatter.push(chunk));
+        }
+        out.push_str(&formatter.finish());
+        let plain = strip_terminal_ansi(&out);
+
+        // Must contain proper box borders, not stray backticks
+        assert!(plain.contains("┌─ go"), "Must have top box border with lang: {plain}");
+        assert!(plain.contains("└─"), "Must have bottom box border: {plain}");
+        assert!(plain.contains("package main"), "Must contain code content: {plain}");
+        // Must NOT end with a stray backtick
+        assert!(!plain.trim().ends_with('`'), "Code block must not end with backtick: {plain}");
     }
 
     #[test]
