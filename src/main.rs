@@ -7830,7 +7830,8 @@ fn build_http_client() -> Result<reqwest::Client, String> {
     let mut builder = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(10))
         .read_timeout(Duration::from_secs(180))
-        .timeout(Duration::from_secs(300));
+        .timeout(Duration::from_secs(300))
+        .tcp_nodelay(true);
     if let Some(proxy_url) = configured_proxy_url()? {
         let proxy = reqwest::Proxy::all(&proxy_url).map_err(|_| {
             "invalid proxy URL; expected http://host:port or https://host:port".to_string()
