@@ -151,6 +151,7 @@ struct Options {
     no_project_tools: bool,
     attachments: Vec<PathBuf>,
     free_only: bool,
+    lite: bool,
 }
 
 const EXIT_USAGE: u8 = 2;
@@ -995,6 +996,7 @@ async fn run() -> Result<(), CliError> {
     })
     .map_err(|e| format!("setting interruption handler: {e}"))?;
     let mut options = parse_args(env::args().skip(1).collect()).map_err(CliError::usage)?;
+    set_nioxs_lite(options.lite);
     let json_run = options.json_output && options.command == "run";
     let trust_outcome = if matches!(options.command.as_str(), "interactive" | "tui" | "run") {
         confirm_project_trust(&options).map_err(CliError::from)
@@ -1278,19 +1280,30 @@ fn is_nioxs_responsive(port: u16) -> bool {
     TcpStream::connect_timeout(&addr, Duration::from_millis(150)).is_ok()
 }
 
+static NIOXS_LITE: AtomicBool = AtomicBool::new(true);
+
+pub fn set_nioxs_lite(lite: bool) {
+    NIOXS_LITE.store(lite, Ordering::SeqCst);
+}
+
 fn ensure_nioxs_gateway() {
     if is_nioxs_responsive(7460) {
         return;
     }
     let found_binary = find_nioxs_binary().or_else(auto_install_nioxs);
     let spawned = if let Some(bin) = found_binary {
-        std::process::Command::new(bin)
-            .arg("serve")
+        let mut cmd = std::process::Command::new(bin);
+        cmd.arg("serve")
+            .env("NIOXS_CACHE_LAYERS", "0")
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .is_ok()
+            .stderr(std::process::Stdio::null());
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            cmd.process_group(0);
+        }
+        cmd.spawn().is_ok()
     } else {
         let npx = if cfg!(windows) { "npx.cmd" } else { "npx" };
         let npx_exists = std::env::var_os("PATH").is_some_and(|paths| {
@@ -1299,13 +1312,18 @@ fn ensure_nioxs_gateway() {
                 .any(|p| p.is_file())
         });
         if npx_exists {
-            std::process::Command::new(npx)
-                .args(["@nio-labs/nio-xs", "serve"])
+            let mut cmd = std::process::Command::new(npx);
+            cmd.args(["@nio-labs/nio-xs", "serve"])
+                .env("NIOXS_CACHE_LAYERS", "0")
                 .stdin(std::process::Stdio::null())
                 .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .spawn()
-                .is_ok()
+                .stderr(std::process::Stdio::null());
+            #[cfg(unix)]
+            {
+                use std::os::unix::process::CommandExt;
+                cmd.process_group(0);
+            }
+            cmd.spawn().is_ok()
         } else {
             false
         }
@@ -1629,6 +1647,7 @@ fn default_options(command: &str) -> Options {
         no_project_tools: false,
         attachments: Vec::new(),
         free_only: false,
+        lite: true,
     }
 }
 
@@ -1752,6 +1771,10 @@ fn parse_args(args: Vec<String>) -> Result<Options, String> {
             keep_first = true;
             "interactive".to_string()
         }
+        Some("--lite") => {
+            keep_first = true;
+            "interactive".to_string()
+        }
         Some(token) if token.starts_with('-') => {
             keep_first = true;
             "run".to_string()
@@ -1800,6 +1823,7 @@ fn parse_args(args: Vec<String>) -> Result<Options, String> {
     let mut no_project_tools = false;
     let mut attachments = Vec::new();
     let mut free_only = false;
+    let mut lite = true;
 
     while let Some(arg) = args.next() {
         let (name, inline) = split_inline_flag(&arg);
@@ -1911,6 +1935,10 @@ fn parse_args(args: Vec<String>) -> Result<Options, String> {
                 }
                 session_id = Some(id);
             }
+            "--lite" => {
+                reject_flag_value(name, inline)?;
+                lite = true;
+            }
             "--help" | "-h" => {
                 let topic = if command == "help" {
                     prompt.first().cloned()
@@ -1972,6 +2000,7 @@ fn parse_args(args: Vec<String>) -> Result<Options, String> {
         no_project_tools,
         attachments,
         free_only,
+        lite,
     })
 }
 
@@ -3145,39 +3174,63 @@ fn should_attach_microlm_tools(prompt: &str) -> bool {
     let is_question_or_conversation = lower.starts_with("what is")
         || lower.starts_with("what's")
         || lower.starts_with("whats")
+        || lower.starts_with("what are")
         || lower.starts_with("why ")
         || lower.starts_with("explain")
         || lower.starts_with("define")
         || lower.starts_with("tell me about")
         || lower.starts_with("who is")
+        || lower.starts_with("who are")
+        || lower.starts_with("how are you")
+        || lower.starts_with("how do")
+        || lower.starts_with("how to")
+        || lower.starts_with("can you")
+        || lower.starts_with("could you")
         || lower.starts_with("hi")
         || lower.starts_with("hello")
         || lower.starts_with("hey")
+        || lower.starts_with("good ")
         || lower.starts_with("give me a snippet")
         || lower.starts_with("write a snippet")
         || lower.starts_with("write a function")
-        || lower.starts_with("how to write");
+        || lower.starts_with("write me");
 
     if is_question_or_conversation {
         return lower.contains("in this project")
             || lower.contains("in this repo")
+            || lower.contains("project")
+            || lower.contains("readme")
             || lower.contains(".rs")
             || lower.contains(".py")
             || lower.contains(".toml")
             || lower.contains(".json")
             || lower.contains(".js")
             || lower.contains(".ts")
-            || lower.contains(".go");
+            || lower.contains(".go")
+            || lower.contains(".md")
+            || lower.contains(".txt")
+            || lower.contains(".sh")
+            || lower.contains(".yaml")
+            || lower.contains(".yml");
     }
 
     let action_keywords = [
         "read", "open", "view", "find", "search", "grep", "list",
         "run", "exec", "build", "test", "cargo", "pytest", "npm",
         "file", "folder", "directory", "inspect", "check", "fix",
-        "patch", "edit", "create", "delete", "remove",
+        "patch", "edit", "create", "delete", "remove", "show",
+        "cat", "display", "print", "examine", "readme",
     ];
 
     action_keywords.iter().any(|&kw| lower.contains(kw))
+        || lower.contains(".md")
+        || lower.contains(".rs")
+        || lower.contains(".py")
+        || lower.contains(".toml")
+        || lower.contains(".json")
+        || lower.contains(".sh")
+        || lower.contains(".yaml")
+        || lower.contains(".yml")
 }
 
 fn collect_files(root: &Path, dir: &Path, depth: usize, output: &mut Vec<String>, limit: usize) {
@@ -4742,6 +4795,11 @@ fn emit_stream_content(
                 *emitted_thinking_len = close_pos;
             }
 
+            if !*response_started {
+                emit_assistant_start(options)?;
+                *response_started = true;
+            }
+
             if answer.len() > after_close {
                 let content_slice = &answer[after_close..];
                 let mut leak_start = None;
@@ -4854,6 +4912,32 @@ fn emit_stream_content(
     Ok(())
 }
 
+fn has_repetitive_loop(text: &str) -> bool {
+    let sentences: Vec<&str> = text
+        .split(['\n', '.'])
+        .map(str::trim)
+        .filter(|s| s.len() >= 25)
+        .collect();
+    if sentences.len() >= 3 {
+        let last = sentences[sentences.len() - 1];
+        let count = sentences.iter().filter(|&&s| s == last).count();
+        if count >= 2 {
+            let prev = sentences[sentences.len() - 2];
+            if prev == last {
+                return true;
+            }
+        }
+        if sentences.len() >= 4 {
+            let last_two = (sentences[sentences.len() - 2], sentences[sentences.len() - 1]);
+            let prev_two = (sentences[sentences.len() - 4], sentences[sentences.len() - 3]);
+            if last_two == prev_two {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 fn process_sse_line(
     line: &str,
     options: &Options,
@@ -4900,6 +4984,10 @@ fn process_sse_line(
         if let Some(content) = choice.delta.content {
             if answer.len() + content.len() > RESPONSE_LIMIT {
                 return Err("response text exceeded the 2 MiB limit".into());
+            }
+            if has_repetitive_loop(answer) {
+                *finished = Some("stop".into());
+                return Ok(());
             }
             answer.push_str(&content);
 
@@ -5051,14 +5139,19 @@ fn emit_thinking(options: &Options, text: &str) -> Result<(), String> {
     if text.is_empty() {
         return Ok(());
     }
-    if options.json_output {
-        emit_json(&json!({
+    let thinking_json = json!({
+        "type": "thinking",
+        "part": {
             "type": "thinking",
-            "part": {
-                "type": "thinking",
-                "text": text
-            }
-        }));
+            "text": text
+        }
+    });
+    if tui::send_event(&thinking_json) {
+        THINKING_STREAMING.store(true, Ordering::SeqCst);
+        return Ok(());
+    }
+    if options.json_output {
+        emit_json(&thinking_json);
     } else {
         THINKING_STREAMING.store(true, Ordering::SeqCst);
     }
@@ -5186,9 +5279,18 @@ impl FluidTypewriter {
             let mut queue = std::collections::VecDeque::<char>::new();
             let mut escape_buffer = Vec::new();
             let mut channel_closed = false;
+            let mut last_chunk_time = tokio::time::Instant::now();
+            let mut smoothed_char_delay_ms = 16u64;
 
             loop {
                 while let Ok(chunk) = rx.try_recv() {
+                    let elapsed = last_chunk_time.elapsed().as_millis() as u64;
+                    last_chunk_time = tokio::time::Instant::now();
+                    let char_count = chunk.chars().count();
+                    if char_count > 0 && elapsed > 0 && elapsed < 1000 {
+                        let arrival_delay = (elapsed / (char_count as u64).max(1)).clamp(6, 28);
+                        smoothed_char_delay_ms = (smoothed_char_delay_ms * 3 + arrival_delay) / 4;
+                    }
                     for ch in chunk.chars() {
                         queue.push_back(ch);
                     }
@@ -5200,6 +5302,13 @@ impl FluidTypewriter {
                     }
                     match rx.recv().await {
                         Some(chunk) => {
+                            let elapsed = last_chunk_time.elapsed().as_millis() as u64;
+                            last_chunk_time = tokio::time::Instant::now();
+                            let char_count = chunk.chars().count();
+                            if char_count > 0 && elapsed > 0 && elapsed < 1000 {
+                                let arrival_delay = (elapsed / (char_count as u64).max(1)).clamp(6, 28);
+                                smoothed_char_delay_ms = (smoothed_char_delay_ms * 3 + arrival_delay) / 4;
+                            }
                             for ch in chunk.chars() {
                                 queue.push_back(ch);
                             }
@@ -5222,18 +5331,21 @@ impl FluidTypewriter {
                 }
 
                 let q_len = queue.len();
-                let (step_chars, delay_ms) = if channel_closed && q_len > 120 {
-                    (q_len.min(16), 0)
+                let (step_chars, delay_ms) = if channel_closed {
+                    (q_len.min(32), 0)
                 } else if q_len > 80 {
-                    (3, 3)
+                    (8, 1)
                 } else if q_len > 40 {
+                    (4, 3)
+                } else if q_len > 20 {
                     (2, 6)
-                } else if q_len > 15 {
-                    (1, 9)
+                } else if q_len > 8 {
+                    (1, smoothed_char_delay_ms.min(10))
                 } else {
-                    (1, 13)
+                    (1, smoothed_char_delay_ms)
                 };
 
+                let mut last_char = '\0';
                 {
                     let mut stdout = io::stdout().lock();
                     for _ in 0..step_chars {
@@ -5258,12 +5370,20 @@ impl FluidTypewriter {
                         let mut b = [0u8; 4];
                         let encoded = ch.encode_utf8(&mut b);
                         let _ = stdout.write_all(encoded.as_bytes());
+                        last_char = ch;
                     }
                     let _ = stdout.flush();
                 }
 
                 if delay_ms > 0 {
-                    tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
+                    let extra_punct_ms = if q_len <= 8 && matches!(last_char, '.' | '!' | '?' | ':') {
+                        14
+                    } else if q_len <= 8 && matches!(last_char, ',' | ';') {
+                        6
+                    } else {
+                        0
+                    };
+                    tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms + extra_punct_ms)).await;
                 }
             }
         });
@@ -6874,9 +6994,14 @@ async fn run_agent_turn_inner(
             mode_instructions
         )
     };
+    let attach_tools = !options.no_tools && (!is_local_microlm || should_attach_microlm_tools(prompt));
     let overview = if options.project_trusted {
         if is_local_microlm {
-            microlm_project_overview(&root)
+            if attach_tools {
+                microlm_project_overview(&root)
+            } else {
+                String::new()
+            }
         } else {
             format!("\n\nProject overview:\n{}", project_overview(&root))
         }
@@ -6892,7 +7017,6 @@ async fn run_agent_turn_inner(
             plugins::catalog(&skills_base()?)?
         )
     };
-    let attach_tools = !options.no_tools && (!is_local_microlm || should_attach_microlm_tools(prompt));
     let tool_instructions = if is_local_microlm {
         if attach_tools {
             "\n\nOnly call a tool when file inspection or commands are needed. Answer general coding questions directly without calling tools."
@@ -6903,12 +7027,16 @@ async fn run_agent_turn_inner(
         "\n\nWhen calling tools, use only the exact function names supplied in the tools schema and provide their required JSON arguments. Do not append XML tags to function names or use generic tool wrappers. After a tool error, use its feedback to correct the call rather than repeat it. Use web_fetch to read source URLs. When you lack a reliable source URL, ask the user for a URL or explain the limitation; do not invent repository URLs or claim failed fetches provide evidence. Do not end messages with a trailing colon (':') before tool calls; complete statements with a period or call tools directly without introductory text."
     };
     let system_content = if is_local_microlm {
-        let base_sys = if options.project_trusted {
-            format!("You are {assistant_name}, a helpful and concise coding assistant for this project.")
+        if !attach_tools {
+            "You are Nio, a lightweight and ultra-fast terminal coding assistant. You are helpful, polite, and very concise. For greetings, give a warm 1-sentence greeting and ask what to code. For general programming or tech questions, answer the latest question directly, accurately, and concisely without hallucinating project ties or files. Never repeat questions or boilerplate from previous answers.".to_string()
         } else {
-            format!("You are {assistant_name}.")
-        };
-        format!("{base_sys}{overview}{tool_instructions}{persona_section}")
+            let base_sys = if options.project_trusted {
+                format!("You are {assistant_name}, a helpful and concise coding assistant for this project.")
+            } else {
+                format!("You are {assistant_name}.")
+            };
+            format!("{base_sys}{overview}{tool_instructions}\n\nOnly call tools when project files or execution are strictly required.")
+        }
     } else {
         format!("{system}{overview}{skill_catalog}{tool_instructions}{persona_section}")
     };
@@ -6916,7 +7044,7 @@ async fn run_agent_turn_inner(
     // Keep as much prior work as the request budget allows. The old half-budget
     // trim silently discarded useful context before the model ever saw it.
     let history_budget = if is_local_microlm {
-        4096
+        1024
     } else {
         CONTEXT_LIMIT
     };
@@ -7266,6 +7394,9 @@ async fn run_agent_turn_inner(
                 "tool_choice": "auto",
                 "stream": true
             });
+            if is_local_microlm {
+                body["temperature"] = json!(0.7);
+            }
             if step == step_limit {
                 body["messages"].as_array_mut().unwrap().push(json!({"role":"user", "content":"The tool-step budget for this turn has been reached. Stop using tools and summarize changes actually made, any errors, and remaining work. Do not claim unfinished work is complete. Tell the user they can continue this task in the same session."}));
             }
@@ -8190,9 +8321,7 @@ fn builtin_nioxs_model_choices() -> Vec<ModelChoice> {
             free: true,
         },
         ModelChoice {
-            name: format!(
-                "NioRay — Keystroke Predator (Streaming Reflex 24L, < 86 MB RAM){ray_tag}"
-            ),
+            name: format!("NioRay — Keystroke Predator (Streaming Reflex 24L, < 86 MB RAM){ray_tag}"),
             id: "nio-ray".into(),
             gateway: "nioxs".into(),
             gateway_label: "NioXS".into(),
@@ -8896,6 +9025,8 @@ async fn interactive(mut options: Options) -> Result<(), String> {
                         println!("Retrying request...");
                         continue;
                     }
+                    history = snapshot_history;
+                    let _ = save_session_history(Some(&session_id), &root, &history, options.project_trusted);
                     QUEUE_PAUSED.store(true, Ordering::SeqCst);
                     break;
                 }
@@ -11228,6 +11359,7 @@ fn is_provider_available(config: &UserConfig, gateway: &str) -> bool {
         no_project_tools: false,
         attachments: Vec::new(),
         free_only: false,
+        lite: true,
     };
     model_api_key(&dummy_options, gateway).is_some()
 }
@@ -12903,6 +13035,8 @@ fn split_model_selector(model: &str) -> Result<(Option<&str>, &str), String> {
         Ok((Some("kilo"), model_id))
     } else if let Some(model_id) = model.strip_prefix("openrouter/") {
         Ok((Some("openrouter"), model_id))
+    } else if model.starts_with("nio-") || find_nioxs_fleet_model(model).is_some() {
+        Ok((Some("nioxs"), model))
     } else {
         Ok((None, model))
     }
@@ -13258,6 +13392,10 @@ const HELP_OPTIONS: &[(&str, &str)] = &[
         "Configure assistant persona, name, and instructions",
     ),
     ("      --tui", "Full-screen terminal interface"),
+    (
+        "      --lite",
+        "Run local MicroLM in ultra-low memory mode (< 86 MB RAM) [default]",
+    ),
     (
         "  -m, --model <SELECTOR>",
         "Model selector from `nio models` (or NIO_MODEL)",

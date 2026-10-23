@@ -153,6 +153,7 @@ struct Live {
     response_started: bool,
     thinking: bool,
     thinking_started: bool,
+    thinking_pending: String,
     last_frame: Instant,
     pending: String,
     formatter: Option<MarkdownFormatter>,
@@ -396,16 +397,63 @@ impl Live {
             .push(text);
         self.append_formatted(&formatted, false)
     }
+    fn finish_thinking(&mut self) -> Result<(), String> {
+        if self.thinking_started {
+            self.thinking_started = false;
+            if !self.thinking_pending.is_empty() {
+                let tail = std::mem::take(&mut self.thinking_pending);
+                let trimmed = tail.trim_end();
+                if !trimmed.is_empty() {
+                    let formatted = format!(
+                        "\x1b[2m{}\x1b[0m\r\n",
+                        trimmed.replace("\r\n", "\n").replace('\n', "\r\n")
+                    );
+                    self.commit(&formatted)?;
+                }
+            }
+            self.commit("\x1b[2m✔ Thought completed\x1b[0m\r\n\r\n")?;
+        }
+        Ok(())
+    }
     fn stream_thinking(&mut self, text: &str) -> Result<(), String> {
         if text.is_empty() {
             return Ok(());
+        }
+        if self.formatter.is_some() {
+            self.flush_partial(true)?;
         }
         if !self.thinking_started {
             self.thinking_started = true;
             self.commit("\x1b[2m💭 Thinking:\x1b[0m\r\n")?;
         }
-        let formatted = format!("\x1b[2m{}\x1b[0m", text.replace("\r\n", "\n").replace('\n', "\r\n"));
-        self.commit(&formatted)?;
+        self.thinking_pending.push_str(text);
+
+        while let Some(pos) = self.thinking_pending.find('\n') {
+            let complete: String = self.thinking_pending.drain(..=pos).collect();
+            let formatted = format!(
+                "\x1b[2m{}\x1b[0m",
+                complete.replace("\r\n", "\n").replace('\n', "\r\n")
+            );
+            self.commit(&formatted)?;
+        }
+
+        let width = terminal::size()
+            .map(|(w, _)| w as usize)
+            .unwrap_or(80)
+            .saturating_sub(4)
+            .max(20);
+        while self.thinking_pending.len() > width {
+            if let Some(space_pos) = self.thinking_pending[..width].rfind(' ') {
+                let line: String = self.thinking_pending.drain(..space_pos).collect();
+                if !self.thinking_pending.is_empty() && self.thinking_pending.starts_with(' ') {
+                    self.thinking_pending.remove(0);
+                }
+                let formatted = format!("\x1b[2m{}\x1b[0m\r\n", line.trim_end());
+                self.commit(&formatted)?;
+            } else {
+                break;
+            }
+        }
 
         let clean = text.trim();
         if !clean.is_empty() {
@@ -426,6 +474,11 @@ impl Live {
         let mut lines = Vec::new();
         if !self.pending.trim().is_empty() {
             lines.push(clip_terminal_text(&self.pending, width.saturating_sub(1)));
+        } else if self.thinking_started && !self.thinking_pending.trim().is_empty() {
+            lines.push(clip_terminal_text(
+                &format!("\x1b[2m{}\x1b[0m", self.thinking_pending.trim_end()),
+                width.saturating_sub(1),
+            ));
         }
         if !self.response_started || self.thinking {
             lines.push(String::new());
@@ -844,6 +897,7 @@ pub async fn run(
         response_started: false,
         thinking: true,
         thinking_started: false,
+        thinking_pending: String::new(),
         last_frame: Instant::now(),
         pending: String::new(),
         formatter: None,
@@ -863,10 +917,7 @@ pub async fn run(
             dirty = true;
             match event["type"].as_str() {
                 Some("text") => {
-                    if live.thinking_started {
-                        live.thinking_started = false;
-                        live.commit("\r\n\x1b[2m✔ Thought completed\x1b[0m\r\n\r\n")?;
-                    }
+                    live.finish_thinking()?;
                     live.stream(event["part"]["text"].as_str().unwrap_or_default())?;
                 }
                 Some("thinking") => {
@@ -898,10 +949,7 @@ pub async fn run(
                     live.status = message;
                 }
                 Some("tool_use") => {
-                    if live.thinking_started {
-                        live.thinking_started = false;
-                        live.commit("\r\n\x1b[2m✔ Thought completed\x1b[0m\r\n\r\n")?;
-                    }
+                    live.finish_thinking()?;
                     let part = &event["part"];
                     let state = part["state"]["status"].as_str().unwrap_or_default();
                     if matches!(state, "completed" | "error") {
@@ -970,10 +1018,7 @@ pub async fn run(
                     live.draw()?;
                 }
                 Some("inline_complete") => {
-                    if live.thinking_started {
-                        live.thinking_started = false;
-                        live.commit("\r\n")?;
-                    }
+                    live.finish_thinking()?;
                     elapsed = started.elapsed();
                     *history = event["history"].as_array().cloned().unwrap_or_default();
                     live.flush_partial(false)?;
