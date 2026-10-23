@@ -5122,6 +5122,7 @@ fn emit_text(options: &Options, text: &str) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(test)]
 fn split_visual_stream_units(text: &str) -> Vec<&str> {
     let mut units = Vec::new();
     let mut in_escape = false;
@@ -5179,27 +5180,67 @@ fn emit_stream_text_smooth(options: &Options, text: &str) -> Result<(), String> 
         return emit_text(options, text);
     };
 
-    let units = split_visual_stream_units(rendered_str);
-    if units.is_empty() {
+    if rendered_str.is_empty() {
         return Ok(());
     }
 
-    let delay_ms = if units.len() <= 1 || units.len() > 30 || CTRL_C_COUNT.load(Ordering::SeqCst) > 0 {
+    let len = rendered_str.len();
+    let delay_us: u64 = if len > 120 || CTRL_C_COUNT.load(Ordering::SeqCst) > 0 {
         0
+    } else if len > 60 {
+        4_000
+    } else if len > 25 {
+        9_000
     } else {
-        (35 / units.len()).clamp(4, 12) as u64
+        14_000
     };
 
     let mut stdout = io::stdout().lock();
-    for unit in units {
+    let mut in_escape = false;
+    let mut escape_buffer = Vec::new();
+
+    for ch in rendered_str.chars() {
+        if ch == '\x1b' {
+            in_escape = true;
+            escape_buffer.clear();
+            escape_buffer.push(ch);
+            continue;
+        }
+
+        if in_escape {
+            escape_buffer.push(ch);
+            if ch.is_ascii_alphabetic() || ch == '~' {
+                in_escape = false;
+                let esc: String = escape_buffer.drain(..).collect();
+                stdout
+                    .write_all(esc.as_bytes())
+                    .map_err(|e| format!("writing response: {e}"))?;
+            }
+            continue;
+        }
+
+        let mut buf = [0u8; 4];
+        let encoded = ch.encode_utf8(&mut buf);
         stdout
-            .write_all(unit.as_bytes())
+            .write_all(encoded.as_bytes())
             .map_err(|e| format!("writing response: {e}"))?;
         let _ = stdout.flush();
-        if delay_ms > 0 && CTRL_C_COUNT.load(Ordering::SeqCst) == 0 {
-            std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+
+        if delay_us > 0 && CTRL_C_COUNT.load(Ordering::SeqCst) == 0 {
+            if ch != '\r' {
+                std::thread::sleep(std::time::Duration::from_micros(delay_us));
+            }
         }
     }
+
+    if !escape_buffer.is_empty() {
+        let esc: String = escape_buffer.drain(..).collect();
+        stdout
+            .write_all(esc.as_bytes())
+            .map_err(|e| format!("writing response: {e}"))?;
+        let _ = stdout.flush();
+    }
+
     Ok(())
 }
 
