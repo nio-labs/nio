@@ -4779,7 +4779,7 @@ fn emit_stream_content(
                             emit_assistant_start(options)?;
                             *response_started = true;
                         }
-                        emit_text(options, &formatted)?;
+                        emit_stream_text_smooth(options, &formatted)?;
                         if inline_queue::is_stage_banner(trimmed) {
                             restart_active_spinner(options, "Thinking");
                         }
@@ -4843,7 +4843,7 @@ fn emit_stream_content(
                     emit_assistant_start(options)?;
                     *response_started = true;
                 }
-                emit_text(options, &formatted)?;
+                emit_stream_text_smooth(options, &formatted)?;
                 if inline_queue::is_stage_banner(trimmed) {
                     restart_active_spinner(options, "Thinking");
                 }
@@ -5002,7 +5002,7 @@ fn process_json_completion(
                         emit_assistant_start(options)?;
                         *response_started = true;
                     }
-                    emit_text(options, &formatted)?;
+                    emit_stream_text_smooth(options, &formatted)?;
                 }
                 *emitted_len = allowed_len;
             }
@@ -5118,6 +5118,87 @@ fn emit_text(options: &Options, text: &str) -> Result<(), String> {
         stdout
             .flush()
             .map_err(|e| format!("writing response: {e}"))?;
+    }
+    Ok(())
+}
+
+fn split_visual_stream_units(text: &str) -> Vec<&str> {
+    let mut units = Vec::new();
+    let mut in_escape = false;
+    let mut start_idx = 0;
+    let mut chars = text.char_indices().peekable();
+
+    while let Some((idx, ch)) = chars.next() {
+        if ch == '\x1b' {
+            in_escape = true;
+            continue;
+        }
+
+        if in_escape {
+            if ch.is_ascii_alphabetic() || ch == '~' {
+                in_escape = false;
+            }
+            continue;
+        }
+
+        if ch == ' ' || ch == '\t' || ch == '\n' {
+            let mut end_idx = idx + ch.len_utf8();
+            while let Some(&(next_idx, next_ch)) = chars.peek() {
+                if next_ch == ' ' || next_ch == '\t' || next_ch == '\r' || next_ch == '\n' {
+                    end_idx = next_idx + next_ch.len_utf8();
+                    chars.next();
+                } else {
+                    break;
+                }
+            }
+            units.push(&text[start_idx..end_idx]);
+            start_idx = end_idx;
+        }
+    }
+
+    if start_idx < text.len() {
+        units.push(&text[start_idx..]);
+    }
+
+    units
+}
+
+fn emit_stream_text_smooth(options: &Options, text: &str) -> Result<(), String> {
+    if options.json_output || !io::stdout().is_terminal() {
+        return emit_text(options, text);
+    }
+
+    let newline = if options.command == "interactive" || io::stdout().is_terminal() {
+        "\r\n"
+    } else {
+        "\n"
+    };
+
+    let rendered_bytes = indent_response_lines(text, newline);
+    let Ok(rendered_str) = std::str::from_utf8(&rendered_bytes) else {
+        return emit_text(options, text);
+    };
+
+    let units = split_visual_stream_units(rendered_str);
+    if units.is_empty() {
+        return Ok(());
+    }
+
+    let delay_ms = if units.len() <= 1 || units.len() > 30 || CTRL_C_COUNT.load(Ordering::SeqCst) > 0 {
+        0
+    } else {
+        (35 / units.len()).clamp(4, 12) as u64
+    };
+
+    let mut stdout = io::stdout().lock();
+    for unit in units {
+        stdout
+            .write_all(unit.as_bytes())
+            .map_err(|e| format!("writing response: {e}"))?;
+        let _ = stdout.flush();
+        if delay_ms > 0 && CTRL_C_COUNT.load(Ordering::SeqCst) == 0 {
+            std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+        }
     }
     Ok(())
 }
@@ -7243,7 +7324,7 @@ async fn run_agent_turn_inner(
                 emit_assistant_start(options)?;
                 response_started = true;
             }
-            emit_text(options, &formatted_tail)?;
+            emit_stream_text_smooth(options, &formatted_tail)?;
         }
         let mut calls = pending_tools
             .into_values()
@@ -14762,5 +14843,16 @@ mod unverified_flow_retry_tests {
         assert!(!legacy_unverified_flow_answer(
             "The final stage returned no answer is an error message."
         ));
+    }
+
+    #[test]
+    fn test_split_visual_stream_units_preserves_ansi_and_words() {
+        let text = "\x1b[36m•\x1b[0m Learn Rust programming language";
+        let units = split_visual_stream_units(text);
+        assert_eq!(units, vec!["\x1b[36m•\x1b[0m ", "Learn ", "Rust ", "programming ", "language"]);
+
+        let code = "\r\n\x1b[38;5;244m│\x1b[0m     let mut x = 5;\r\n";
+        let code_units = split_visual_stream_units(code);
+        assert_eq!(code_units, vec!["\r\n", "\x1b[38;5;244m│\x1b[0m     ", "let ", "mut ", "x ", "= ", "5;\r\n"]);
     }
 }
