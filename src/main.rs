@@ -5164,6 +5164,125 @@ fn split_visual_stream_units(text: &str) -> Vec<&str> {
     units
 }
 
+static ACTIVE_TYPEWRITER: std::sync::Mutex<Option<tokio::sync::mpsc::UnboundedSender<String>>> =
+    std::sync::Mutex::new(None);
+
+struct FluidTypewriter {
+    handle: Option<tokio::task::JoinHandle<()>>,
+}
+
+impl FluidTypewriter {
+    fn start(options: &Options) -> Self {
+        if options.json_output || !io::stdout().is_terminal() {
+            return Self { handle: None };
+        }
+
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+        if let Ok(mut lock) = ACTIVE_TYPEWRITER.lock() {
+            *lock = Some(tx);
+        }
+
+        let handle = tokio::spawn(async move {
+            let mut queue = std::collections::VecDeque::<char>::new();
+            let mut escape_buffer = Vec::new();
+            let mut channel_closed = false;
+
+            loop {
+                while let Ok(chunk) = rx.try_recv() {
+                    for ch in chunk.chars() {
+                        queue.push_back(ch);
+                    }
+                }
+
+                if queue.is_empty() {
+                    if channel_closed || CTRL_C_COUNT.load(Ordering::SeqCst) > 0 {
+                        break;
+                    }
+                    match rx.recv().await {
+                        Some(chunk) => {
+                            for ch in chunk.chars() {
+                                queue.push_back(ch);
+                            }
+                        }
+                        None => {
+                            channel_closed = true;
+                            if queue.is_empty() {
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if CTRL_C_COUNT.load(Ordering::SeqCst) > 0 {
+                    let mut stdout = io::stdout().lock();
+                    let s: String = queue.drain(..).collect();
+                    let _ = stdout.write_all(s.as_bytes());
+                    let _ = stdout.flush();
+                    break;
+                }
+
+                let q_len = queue.len();
+                let (step_chars, delay_ms) = if channel_closed && q_len > 120 {
+                    (q_len.min(16), 0)
+                } else if q_len > 80 {
+                    (3, 3)
+                } else if q_len > 40 {
+                    (2, 6)
+                } else if q_len > 15 {
+                    (1, 9)
+                } else {
+                    (1, 13)
+                };
+
+                {
+                    let mut stdout = io::stdout().lock();
+                    for _ in 0..step_chars {
+                        let Some(ch) = queue.pop_front() else {
+                            break;
+                        };
+
+                        if ch == '\x1b' {
+                            escape_buffer.clear();
+                            escape_buffer.push(ch);
+                            while let Some(esc_ch) = queue.pop_front() {
+                                escape_buffer.push(esc_ch);
+                                if esc_ch.is_ascii_alphabetic() || esc_ch == '~' {
+                                    break;
+                                }
+                            }
+                            let esc: String = escape_buffer.drain(..).collect();
+                            let _ = stdout.write_all(esc.as_bytes());
+                            continue;
+                        }
+
+                        let mut b = [0u8; 4];
+                        let encoded = ch.encode_utf8(&mut b);
+                        let _ = stdout.write_all(encoded.as_bytes());
+                    }
+                    let _ = stdout.flush();
+                }
+
+                if delay_ms > 0 {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
+                }
+            }
+        });
+
+        Self {
+            handle: Some(handle),
+        }
+    }
+
+    async fn finish(mut self) {
+        if let Ok(mut lock) = ACTIVE_TYPEWRITER.lock() {
+            let _ = lock.take();
+        }
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.await;
+        }
+    }
+}
+
 fn emit_stream_text_smooth(options: &Options, text: &str) -> Result<(), String> {
     if options.json_output || !io::stdout().is_terminal() {
         return emit_text(options, text);
@@ -5184,64 +5303,14 @@ fn emit_stream_text_smooth(options: &Options, text: &str) -> Result<(), String> 
         return Ok(());
     }
 
-    let len = rendered_str.len();
-    let delay_us: u64 = if len > 120 || CTRL_C_COUNT.load(Ordering::SeqCst) > 0 {
-        0
-    } else if len > 60 {
-        4_000
-    } else if len > 25 {
-        9_000
-    } else {
-        14_000
-    };
-
-    let mut stdout = io::stdout().lock();
-    let mut in_escape = false;
-    let mut escape_buffer = Vec::new();
-
-    for ch in rendered_str.chars() {
-        if ch == '\x1b' {
-            in_escape = true;
-            escape_buffer.clear();
-            escape_buffer.push(ch);
-            continue;
-        }
-
-        if in_escape {
-            escape_buffer.push(ch);
-            if ch.is_ascii_alphabetic() || ch == '~' {
-                in_escape = false;
-                let esc: String = escape_buffer.drain(..).collect();
-                stdout
-                    .write_all(esc.as_bytes())
-                    .map_err(|e| format!("writing response: {e}"))?;
-            }
-            continue;
-        }
-
-        let mut buf = [0u8; 4];
-        let encoded = ch.encode_utf8(&mut buf);
-        stdout
-            .write_all(encoded.as_bytes())
-            .map_err(|e| format!("writing response: {e}"))?;
-        let _ = stdout.flush();
-
-        if delay_us > 0 && CTRL_C_COUNT.load(Ordering::SeqCst) == 0 {
-            if ch != '\r' {
-                std::thread::sleep(std::time::Duration::from_micros(delay_us));
-            }
+    if let Ok(lock) = ACTIVE_TYPEWRITER.lock() {
+        if let Some(ref tx) = *lock {
+            let _ = tx.send(rendered_str.to_string());
+            return Ok(());
         }
     }
 
-    if !escape_buffer.is_empty() {
-        let esc: String = escape_buffer.drain(..).collect();
-        stdout
-            .write_all(esc.as_bytes())
-            .map_err(|e| format!("writing response: {e}"))?;
-        let _ = stdout.flush();
-    }
-
-    Ok(())
+    emit_text(options, text)
 }
 
 fn emit_json(value: &Value) {
@@ -7290,6 +7359,7 @@ async fn run_agent_turn_inner(
         let is_event_stream = content_type
             .as_deref()
             .is_none_or(|value| value.contains("text/event-stream"));
+        let typewriter = FluidTypewriter::start(options);
         if is_event_stream {
             let mut stream = response.bytes_stream();
             let mut buffer = Vec::new();
@@ -7367,6 +7437,7 @@ async fn run_agent_turn_inner(
             }
             emit_stream_text_smooth(options, &formatted_tail)?;
         }
+        typewriter.finish().await;
         let mut calls = pending_tools
             .into_values()
             .map(|pending| {
