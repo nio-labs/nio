@@ -21,6 +21,7 @@
 ## Why NioAI?
 
 - ⚡ **Blazing Fast Startup (<10ms)**: Built in native Rust. Starts instantly in your terminal without the startup lag or runtime tax of Python, Node.js, or Electron.
+- 🌊 **Fluid Typewriter Streaming**: Renders model responses with adaptive character-level micro-cadence and zero ANSI flicker. Code blocks, borders, tables, and prose flow continuously like ink on paper.
 - 🦈 **Official Companion to NioXS & MicroLM Fleet**: Purpose-engineered as the interactive terminal companion for [**NioXS**](https://github.com/nio-labs/nio-xs). Natively orchestrates the sovereign **MicroLM (µLM)** predator family (`nio-cuda`, `nio-ray`, `nio-viper`, `nio-manta`, `nio-nano`, `nio-micro`, `nio-mask`, `nio-mini`) — delivering sub-10ms DAG planning, electric keystroke code generation, and deep AST linting in strictly under 50–160 MB of resident RAM.
 - 🪶 **Ultra-Lightweight Footprint**: Consumes under ~20MB of client RAM. Keep it running continuously in background sessions without battery drain or CPU throttling.
 - 🎭 **Custom Persona & Built-In Presets**: Give Nio an identity, custom name, gender & pronouns, and tailored behavioral guidelines (`:persona`). Includes 10 built-in presets (BFF, Partner, Ex, Senior Architect, Staff Rustacean, etc.) with an interactive picker.
@@ -61,7 +62,11 @@ On first launch, Nio defaults to NioCuda (`nioxs::nio-cuda`) backed by the auto-
 Override the model for a one-shot query:
 
 ```sh
+# Query using upstream cloud LLM
 nio run -m kilo::kilo-auto/free "Explain this project"
+
+# Query local in-process NioRay predator (< 100MB RAM, 100% private)
+nio run -m nioxs::nio-ray "Write a thread-safe rate limiter in Rust"
 ```
 
 ---
