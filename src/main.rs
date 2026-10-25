@@ -14,6 +14,7 @@ mod skills;
 mod snippets;
 mod tui;
 mod voice;
+mod coprocessor;
 use base64::Engine as _;
 use crossterm::cursor::{MoveDown, MoveTo, MoveToColumn, MoveToNextLine, MoveUp, position};
 use crossterm::event::{
@@ -1350,6 +1351,42 @@ pub struct NioxsModelInfo {
 
 pub const NIOXS_FLEET_MODELS: &[NioxsModelInfo] = &[
     NioxsModelInfo {
+        id: "viper",
+        name: "Viper (100M)",
+        filename: "viper.Q4_0.gguf",
+        size_bytes: 64_690_000,
+        download_url: "https://github.com/nio-labs/nio-xs-models/releases/download/v0.1.0/viper.Q4_0.gguf",
+    },
+    NioxsModelInfo {
+        id: "nano",
+        name: "Nano (0.5M)",
+        filename: "nano.onnx",
+        size_bytes: 524_288,
+        download_url: "https://github.com/nio-labs/nio-xs-models/releases/download/v0.1.0/nano.onnx",
+    },
+    NioxsModelInfo {
+        id: "micro",
+        name: "Micro (5.0M)",
+        filename: "micro.onnx",
+        size_bytes: 5_242_880,
+        download_url: "https://github.com/nio-labs/nio-xs-models/releases/download/v0.1.0/micro.onnx",
+    },
+    NioxsModelInfo {
+        id: "mask",
+        name: "Mask (1.1M)",
+        filename: "mask.onnx",
+        size_bytes: 1_153_434,
+        download_url: "https://github.com/nio-labs/nio-xs-models/releases/download/v0.1.0/mask.onnx",
+    },
+    NioxsModelInfo {
+        id: "mini",
+        name: "Mini (7.1M)",
+        filename: "mini.onnx",
+        size_bytes: 7_444_889,
+        download_url: "https://github.com/nio-labs/nio-xs-models/releases/download/v0.1.0/mini.onnx",
+    },
+    // Backward compatibility aliases
+    NioxsModelInfo {
         id: "nio-viper",
         name: "NioViper",
         filename: "nio-viper-ast.Q4_0.gguf",
@@ -1407,8 +1444,8 @@ pub fn is_nioxs_fleet_model_available(info: &NioxsModelInfo) -> bool {
         return true;
     }
     let alt_names: &[&str] = match info.id {
+        "viper" | "nio-viper" => &["viper.Q4_0.gguf", "nio-viper-ast-32k.Q4_0.gguf", "nio-viper.Q4_K_M.gguf", "nio-viper-ast.Q4_0.gguf"],
         "nio-ray" => &["nio-ray.Q4_K_M.gguf", "nio-ray.Q4_0.gguf"],
-        "nio-viper" => &["nio-viper-ast-32k.Q4_0.gguf", "nio-viper.Q4_K_M.gguf"],
         "nio-manta" => &["nio-manta.Q4_K_M.gguf", "nio-manta.Q4_0.gguf"],
         "nio-cuda" => &["nio-cuda.Q4_K_M.gguf", "nio-cuda.Q4_0.gguf"],
         _ => &[],
@@ -6046,6 +6083,11 @@ async fn execute_agent_tool(
             let summary = preview_summary(&display_path, old_content.as_bytes(), new_content);
             let details =
                 preview_replacement(&display_path, &original_text, old_content, new_content);
+            if let Some(defect) = coprocessor::predict_diff_defects(&details) {
+                if defect.will_break || defect.risk_score > 0.40 {
+                    eprintln!("⚠️ [MINI FORECASTER]: Warning - Potential defect predicted ({}) [Risk: {:.2}]: {}", defect.category, defect.risk_score, defect.reason);
+                }
+            }
             if !interrupt.with_terminal_input(|| {
                 confirm_tool(
                     auto_approve,
@@ -6166,8 +6208,15 @@ async fn execute_agent_tool(
         }
         "run_command" => {
             let command = required_arg(args, "command")?;
+            let audit = coprocessor::audit_command(command);
+            let confirm_message = if audit.is_destructive {
+                format!("⚡ Viper/Micro Clutch: Destructive mutation detected ({}) [Risk: {:.2}]. Run command: {command}", audit.reason, audit.risk_score)
+            } else {
+                format!("Run command: {command}")
+            };
+            let approve_override = if audit.is_destructive { false } else { auto_approve };
             if !interrupt.with_terminal_input(|| {
-                confirm_tool(auto_approve, &format!("Run command: {command}"), None)
+                confirm_tool(approve_override, &confirm_message, None)
             })? {
                 return Err("user denied command".into());
             }
@@ -6860,7 +6909,15 @@ fn append_turn_user_messages(
             *user = request_user.clone();
         }
     } else {
-        messages.push(request_user.clone());
+        let mut sanitized_req = request_user.clone();
+        if let Some(content_str) = sanitized_req.get("content").and_then(Value::as_str) {
+            let (clean, count) = coprocessor::sanitize_prompt(content_str);
+            if count > 0 {
+                eprintln!("🔒 [MASK REDACTOR]: Redacted {count} credential(s) from upstream transmission");
+                sanitized_req["content"] = serde_json::json!(clean);
+            }
+        }
+        messages.push(sanitized_req);
         history.push(history_user.clone());
     }
     Ok(())

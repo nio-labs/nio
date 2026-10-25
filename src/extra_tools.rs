@@ -587,6 +587,10 @@ pub fn terminal_start(
     turn_cancel: Arc<AtomicBool>,
 ) -> Result<String, String> {
     let command = required_arg(args, "command")?;
+    let audit = crate::coprocessor::audit_command(command);
+    if audit.is_destructive {
+        eprintln!("⚡ [VIPER/MICRO CLUTCH]: Destructive mutation detected: {} [Risk: {:.2}]", audit.reason, audit.risk_score);
+    }
     if command.trim().is_empty() || command.len() > 4_000 {
         return Err("command must be 1-4000 characters".into());
     }
