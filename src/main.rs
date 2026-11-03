@@ -1414,6 +1414,20 @@ pub const NIOXS_FLEET_MODELS: &[NioxsModelInfo] = &[
         size_bytes: 284_962_368,
         download_url: "https://github.com/nio-labs/nio-xs-models/releases/download/v0.5.2/nio-cuda-ast.Q4_0.gguf",
     },
+    NioxsModelInfo {
+        id: "nio-beluga",
+        name: "NioBeluga",
+        filename: "beluga.vmicrolm-vector.gguf",
+        size_bytes: 768_230_000,
+        download_url: "https://github.com/nio-labs/nio-xs-models/releases/download/v0.6.0/beluga.vmicrolm-vector.gguf",
+    },
+    NioxsModelInfo {
+        id: "beluga",
+        name: "Beluga (1.54B)",
+        filename: "beluga.vmicrolm-vector.gguf",
+        size_bytes: 768_230_000,
+        download_url: "https://github.com/nio-labs/nio-xs-models/releases/download/v0.6.0/beluga.vmicrolm-vector.gguf",
+    },
 ];
 
 pub fn nioxs_models_dir() -> PathBuf {
@@ -1444,6 +1458,7 @@ pub fn is_nioxs_fleet_model_available(info: &NioxsModelInfo) -> bool {
         return true;
     }
     let alt_names: &[&str] = match info.id {
+        "beluga" | "nio-beluga" => &["beluga.vmicrolm-vector.gguf", "nio-beluga.vmicrolm-vector.gguf"],
         "viper" | "nio-viper" => &["viper.Q4_0.gguf", "nio-viper-ast-32k.Q4_0.gguf", "nio-viper.Q4_K_M.gguf", "nio-viper-ast.Q4_0.gguf"],
         "nio-ray" => &["nio-ray.Q4_K_M.gguf", "nio-ray.Q4_0.gguf"],
         "nio-manta" => &["nio-manta.Q4_K_M.gguf", "nio-manta.Q4_0.gguf"],
@@ -8368,8 +8383,21 @@ fn builtin_nioxs_model_choices() -> Vec<ModelChoice> {
     } else {
         " · download required"
     };
+    let beluga_tag =
+        if find_nioxs_fleet_model("nio-beluga").is_some_and(is_nioxs_fleet_model_available) {
+            " · ready"
+        } else {
+            " · download required"
+        };
 
     vec![
+        ModelChoice {
+            name: format!("NioBeluga — Sovereign Lead Architect (28L, < 225 MB RAM){beluga_tag}"),
+            id: "nio-beluga".into(),
+            gateway: "nioxs".into(),
+            gateway_label: "NioXS".into(),
+            free: true,
+        },
         ModelChoice {
             name: format!("NioCuda — Tactical Swarm Conductor & Orchestrator{cuda_tag}"),
             id: "nio-cuda".into(),
@@ -8501,22 +8529,26 @@ async fn fetch_model_choices(options: &Options) -> Result<Vec<ModelChoice>, Stri
 }
 
 fn model_priority_rank(id: &str) -> usize {
-    if id == "nio-cuda" || id == "nioxs::nio-cuda" {
+    if id == "nio-beluga" || id == "nioxs::nio-beluga" {
         0
-    } else if id == "nio-ray" || id == "nioxs::nio-ray" {
+    } else if id == "nio-cuda" || id == "nioxs::nio-cuda" {
         1
-    } else if id == "nio-viper" || id == "nioxs::nio-viper" {
+    } else if id == "nio-ray" || id == "nioxs::nio-ray" {
         2
-    } else if id == "nio-manta" || id == "nioxs::nio-manta" {
+    } else if id == "nio-viper" || id == "nioxs::nio-viper" {
         3
-    } else if id == "nio-nano" || id == "nioxs::nio-nano" {
+    } else if id == "nio-manta" || id == "nioxs::nio-manta" {
         4
-    } else if id == "nio-micro" || id == "nioxs::nio-micro" {
+    } else if id == "nio-skate" || id == "nioxs::nio-skate" {
         5
-    } else if id == "nio-mask" || id == "nioxs::nio-mask" {
+    } else if id == "nio-nano" || id == "nioxs::nio-nano" {
         6
-    } else if id == "nio-mini" || id == "nioxs::nio-mini" {
+    } else if id == "nio-micro" || id == "nioxs::nio-micro" {
         7
+    } else if id == "nio-mask" || id == "nioxs::nio-mask" {
+        8
+    } else if id == "nio-mini" || id == "nioxs::nio-mini" {
+        9
     } else if id == "openrouter/free" || id == "kilo::openrouter/free" {
         8
     } else if id == "cohere/north-mini-code:free" || id == "kilo::cohere/north-mini-code:free" {
