@@ -2786,20 +2786,68 @@ fn strip_stray_thought_tags(text: &mut String) {
             tail = tail.replace(tag, "");
         }
         let trimmed_tail = tail.trim_end();
-        let cleaned_tail = if trimmed_tail.ends_with("\n*")
-            || trimmed_tail == "*"
-            || trimmed_tail.ends_with("\n-")
-            || trimmed_tail == "-"
+        let last_line = trimmed_tail.lines().last().unwrap_or("").trim();
+        let cleaned_tail = if last_line == "*"
+            || last_line == "-"
+            || last_line == "+"
+            || (last_line.len() <= 3
+                && last_line.ends_with('.')
+                && last_line[..last_line.len() - 1]
+                    .chars()
+                    .all(|c| c.is_ascii_digit()))
         {
-            trimmed_tail
-                .trim_end_matches(['*', '-', ' ', '\t'])
-                .trim_end_matches('\n')
+            if let Some(pos) = trimmed_tail.rfind('\n') {
+                trimmed_tail[..pos].trim_end()
+            } else {
+                ""
+            }
         } else {
-            tail.as_str()
+            trimmed_tail
         };
         text.truncate(search_from);
         text.push_str(cleaned_tail);
     }
+}
+
+fn safe_chunk_boundary(slice: &str) -> usize {
+    for prefix in [
+        "</thinking>",
+        "</thought>",
+        "</think>",
+        "<thinking>",
+        "<thought>",
+        "<think>",
+        "</node>",
+        "<|im_end|>",
+        "<|im_start|>",
+        "<|endoftext|>",
+    ] {
+        for i in 1..prefix.len() {
+            if slice.ends_with(&prefix[..i]) {
+                return slice.len() - i;
+            }
+        }
+    }
+    slice.len()
+}
+
+fn sanitize_stream_chunk(chunk: &str) -> String {
+    let mut s = chunk.to_string();
+    for tag in [
+        "</thinking>",
+        "</thought>",
+        "</think>",
+        "<thinking>",
+        "<thought>",
+        "<think>",
+        "</node>",
+        "<|im_end|>",
+        "<|im_start|>",
+        "<|endoftext|>",
+    ] {
+        s = s.replace(tag, "");
+    }
+    s
 }
 
 fn ask_user_retry_unparseable_tool(options: &Options) -> Result<bool, String> {
@@ -4946,16 +4994,6 @@ fn emit_stream_content(
                         "<function_call",
                         "<function name=",
                         "<|tool_call",
-                        "<thinking",
-                        "<thought",
-                        "<think",
-                        "</thinking",
-                        "</thought",
-                        "</think",
-                        "</node",
-                        "<|im_end",
-                        "<|im_start",
-                        "<|endoftext",
                     ] {
                         if tail.starts_with(prefix) || prefix.starts_with(tail) {
                             leak_start = Some(check_from + idx);
@@ -4967,29 +5005,26 @@ fn emit_stream_content(
                     }
                     check_from += idx + 1;
                 }
-                let allowed_len = if let Some(mut start) = leak_start {
-                    let pre = &content_slice[..start];
-                    let trimmed = pre.trim_end_matches([' ', '\t']);
-                    if trimmed.ends_with("\n*") || trimmed.ends_with("\n-") || trimmed == "*" || trimmed == "-" {
-                        start = trimmed.len() - 1;
-                    }
-                    start
-                } else {
-                    content_slice.len()
-                };
+                let mut allowed_len = leak_start.unwrap_or(content_slice.len());
+                if leak_start.is_none() {
+                    allowed_len = safe_chunk_boundary(&content_slice[..allowed_len]);
+                }
                 if allowed_len > *emitted_len {
-                    let to_emit = &content_slice[*emitted_len..allowed_len];
-                    let formatted = formatter.push(to_emit);
-                    if !formatted.is_empty() {
-                        let clean = strip_terminal_ansi(&formatted);
-                        let trimmed = clean.trim();
-                        if !*response_started && !trimmed.is_empty() {
-                            emit_assistant_start(options)?;
-                            *response_started = true;
-                        }
-                        emit_stream_text_smooth(options, &formatted)?;
-                        if inline_queue::is_stage_banner(trimmed) {
-                            restart_active_spinner(options, "Thinking");
+                    let raw_to_emit = &content_slice[*emitted_len..allowed_len];
+                    let to_emit = sanitize_stream_chunk(raw_to_emit);
+                    if !to_emit.is_empty() {
+                        let formatted = formatter.push(&to_emit);
+                        if !formatted.is_empty() {
+                            let clean = strip_terminal_ansi(&formatted);
+                            let trimmed = clean.trim();
+                            if !*response_started && !trimmed.is_empty() {
+                                emit_assistant_start(options)?;
+                                *response_started = true;
+                            }
+                            emit_stream_text_smooth(options, &formatted)?;
+                            if inline_queue::is_stage_banner(trimmed) {
+                                restart_active_spinner(options, "Thinking");
+                            }
                         }
                     }
                     *emitted_len = allowed_len;
@@ -5025,16 +5060,6 @@ fn emit_stream_content(
                 "<function_call",
                 "<function name=",
                 "<|tool_call",
-                "<thinking",
-                "<thought",
-                "<think",
-                "</thinking",
-                "</thought",
-                "</think",
-                "</node",
-                "<|im_end",
-                "<|im_start",
-                "<|endoftext",
             ] {
                 if tail.starts_with(prefix) || prefix.starts_with(tail) {
                     leak_start = Some(check_from + idx);
@@ -5047,29 +5072,26 @@ fn emit_stream_content(
             check_from += idx + 1;
         }
 
-        let allowed_len = if let Some(mut start) = leak_start {
-            let pre = &answer[..start];
-            let trimmed = pre.trim_end_matches([' ', '\t']);
-            if trimmed.ends_with("\n*") || trimmed.ends_with("\n-") || trimmed == "*" || trimmed == "-" {
-                start = trimmed.len() - 1;
-            }
-            start
-        } else {
-            answer.len()
-        };
+        let mut allowed_len = leak_start.unwrap_or(answer.len());
+        if leak_start.is_none() {
+            allowed_len = safe_chunk_boundary(&answer[..allowed_len]);
+        }
         if allowed_len > *emitted_len {
-            let to_emit = &answer[*emitted_len..allowed_len];
-            let formatted = formatter.push(to_emit);
-            if !formatted.is_empty() {
-                let clean = strip_terminal_ansi(&formatted);
-                let trimmed = clean.trim();
-                if !*response_started && !trimmed.is_empty() {
-                    emit_assistant_start(options)?;
-                    *response_started = true;
-                }
-                emit_stream_text_smooth(options, &formatted)?;
-                if inline_queue::is_stage_banner(trimmed) {
-                    restart_active_spinner(options, "Thinking");
+            let raw_to_emit = &answer[*emitted_len..allowed_len];
+            let to_emit = sanitize_stream_chunk(raw_to_emit);
+            if !to_emit.is_empty() {
+                let formatted = formatter.push(&to_emit);
+                if !formatted.is_empty() {
+                    let clean = strip_terminal_ansi(&formatted);
+                    let trimmed = clean.trim();
+                    if !*response_started && !trimmed.is_empty() {
+                        emit_assistant_start(options)?;
+                        *response_started = true;
+                    }
+                    emit_stream_text_smooth(options, &formatted)?;
+                    if inline_queue::is_stage_banner(trimmed) {
+                        restart_active_spinner(options, "Thinking");
+                    }
                 }
             }
             *emitted_len = allowed_len;
@@ -7606,7 +7628,13 @@ async fn run_agent_turn_inner(
                 "stream": true
             });
             if is_local_microlm {
-                body["temperature"] = json!(0.7);
+                if matches!(model_id, "beluga" | "nio-beluga") {
+                    body["temperature"] = json!(0.6);
+                } else if matches!(model_id, "manta" | "nio-manta") {
+                    body["temperature"] = json!(0.3);
+                } else {
+                    body["temperature"] = json!(0.7);
+                }
             }
             if step == step_limit {
                 body["messages"].as_array_mut().unwrap().push(json!({"role":"user", "content":"The tool-step budget for this turn has been reached. Stop using tools and summarize changes actually made, any errors, and remaining work. Do not claim unfinished work is complete. Tell the user they can continue this task in the same session."}));
@@ -7702,13 +7730,13 @@ async fn run_agent_turn_inner(
             .as_deref()
             .is_none_or(|value| value.contains("text/event-stream"));
         let typewriter = FluidTypewriter::start(options);
+        let mut emitted_len = 0usize;
+        let mut emitted_thinking_len = 0usize;
         if is_event_stream {
             let mut stream = response.bytes_stream();
             let mut buffer = Vec::new();
             let mut received = 0usize;
             let mut finished = None;
-            let mut emitted_len = 0usize;
-            let mut emitted_thinking_len = 0usize;
             while let Some(part) = stream.next().await {
                 let bytes = part.map_err(|e| format!("response stream failed: {e}"))?;
                 received = received.saturating_add(bytes.len());
@@ -7760,7 +7788,6 @@ async fn run_agent_turn_inner(
             let payload =
                 serde_json::from_slice::<Value>(&read_http_body(response, RESPONSE_LIMIT).await?)
                     .map_err(|error| format!("invalid provider completion response: {error}"))?;
-            let mut emitted_len = 0;
             process_json_completion(
                 payload,
                 options,
@@ -7770,6 +7797,56 @@ async fn run_agent_turn_inner(
                 &mut response_started,
                 &mut formatter,
             )?;
+        }
+        let final_slice = if let Some(open_idx) = answer
+            .find("<thinking>")
+            .or_else(|| answer.find("<thought>"))
+            .or_else(|| answer.find("<think>"))
+        {
+            let open_len = if answer[open_idx..].starts_with("<thinking>") {
+                10
+            } else if answer[open_idx..].starts_with("<thought>") {
+                9
+            } else {
+                7
+            };
+            let after_open = open_idx + open_len;
+            if let Some(close_rel) = answer[after_open..]
+                .find("</thinking>")
+                .or_else(|| answer[after_open..].find("</thought>"))
+                .or_else(|| answer[after_open..].find("</think>"))
+            {
+                let close_len = if answer[after_open + close_rel..].starts_with("</thinking>") {
+                    11
+                } else if answer[after_open + close_rel..].starts_with("</thought>") {
+                    10
+                } else {
+                    8
+                };
+                let after_close = after_open + close_rel + close_len;
+                if answer.len() > after_close {
+                    &answer[after_close..]
+                } else {
+                    ""
+                }
+            } else {
+                ""
+            }
+        } else {
+            answer.as_str()
+        };
+        if final_slice.len() > emitted_len {
+            let remaining = sanitize_stream_chunk(&final_slice[emitted_len..]);
+            if !remaining.is_empty() {
+                let formatted = formatter.push(&remaining);
+                if !formatted.is_empty() {
+                    if !response_started && !strip_terminal_ansi(&formatted).trim().is_empty() {
+                        emit_assistant_start(options)?;
+                        response_started = true;
+                    }
+                    emit_stream_text_smooth(options, &formatted)?;
+                }
+            }
         }
         let formatted_tail = formatter.finish();
         if !formatted_tail.is_empty() {
