@@ -1442,13 +1442,6 @@ pub const NIOXS_FLEET_MODELS: &[NioxsModelInfo] = &[
         size_bytes: 639_362_560,
         download_url: "https://github.com/nio-labs/nio-xs-models/releases/download/v0.3.0/beluga.vmicrolm-vector.gguf",
     },
-    NioxsModelInfo {
-        id: "blue",
-        name: "Blue (3.82B)",
-        filename: "blue.vmicrolm-reflex.gguf",
-        size_bytes: 1_650_000_000,
-        download_url: "https://github.com/nio-labs/nio-xs-models/releases/download/v0.1.0/blue.vmicrolm-reflex.gguf",
-    },
 ];
 
 pub fn nioxs_models_dir() -> PathBuf {
@@ -1480,7 +1473,6 @@ pub fn is_nioxs_fleet_model_available(info: &NioxsModelInfo) -> bool {
     }
     let alt_names: &[&str] = match info.id {
         "beluga" | "nio-beluga" => &["beluga.vmicrolm-vector.gguf", "nio-beluga.vmicrolm-vector.gguf"],
-        "blue" | "nio-blue" => &["blue.vmicrolm-reflex.gguf", "nio-blue.vmicrolm-reflex.gguf"],
         "viper" | "nio-viper" => &["viper.Q4_0.gguf", "nio-viper-ast-32k.Q4_0.gguf", "nio-viper.Q4_K_M.gguf", "nio-viper-ast.Q4_0.gguf"],
         "manta" | "nio-manta" => &["manta.vmicrolm-vector.gguf", "nio-manta.vmicrolm-vector.gguf", "nio-manta.Q4_K_M.gguf", "nio-manta.Q4_0.gguf"],
         "skate" | "nio-skate" => &["skate.vmicrolm-vector.gguf", "nio-skate.vmicrolm-vector.gguf"],
@@ -7425,7 +7417,7 @@ async fn run_agent_turn_inner(
         && (model_id.starts_with("nio-")
             || matches!(
                 model_id,
-                "beluga" | "manta" | "skate" | "blue" | "cuda" | "ray" | "viper" | "echo" | "fin"
+                "beluga" | "manta" | "skate" | "cuda" | "ray" | "viper" | "echo" | "fin"
             ));
     let system = if options.project_trusted {
         format!(
@@ -7493,13 +7485,6 @@ async fn run_agent_turn_inner(
             } else {
                 base.to_string()
             }
-        } else if matches!(model_id, "blue" | "nio-blue") {
-            let base = "You are Blue, Nio's Flagship Sovereign Reflex Companion. Speak with the calm, approachable, and grounded voice of a seasoned staff engineer pair-programming with a colleague. Be conversational and engaging, but keep your dialogue focused and high-signal without fluff or sycophancy. When complex reasoning is required, verify invariants inside concise <think>...</think> tags (under 100 tokens), close your thoughts with </think>, and deliver your answer naturally. Reserve code blocks strictly for executable code.";
-            if attach_tools {
-                format!("{base}{overview}{tool_instructions}\n\nOnly call tools when project files or execution are strictly required.")
-            } else {
-                base.to_string()
-            }
         } else if !attach_tools {
             "You are Nio, a lightweight and ultra-fast terminal coding assistant. For greetings, give a warm 1-sentence greeting and ask what to code. For general programming or tech questions, answer the latest question directly, accurately, and thoroughly without hallucinating project ties or files. Never repeat questions or boilerplate from previous answers.".to_string()
         } else {
@@ -7517,7 +7502,7 @@ async fn run_agent_turn_inner(
     // Keep as much prior work as the request budget allows. The old half-budget
     // trim silently discarded useful context before the model ever saw it.
     let history_budget = if is_local_microlm {
-        if matches!(model_id, "beluga" | "nio-beluga" | "blue" | "nio-blue") {
+        if matches!(model_id, "beluga" | "nio-beluga") {
             4096
         } else {
             1024
@@ -8859,21 +8844,8 @@ fn builtin_nioxs_model_choices() -> Vec<ModelChoice> {
         } else {
             " · download required"
         };
-    let blue_tag =
-        if find_nioxs_fleet_model("blue").is_some_and(is_nioxs_fleet_model_available) {
-            " · ready"
-        } else {
-            " · download required"
-        };
 
     vec![
-        ModelChoice {
-            name: format!("Blue — Sovereign Staff Peer & Reflex Lead (3.82B, < 180 MB RAM){blue_tag}"),
-            id: "blue".into(),
-            gateway: "nioxs".into(),
-            gateway_label: "NioXS".into(),
-            free: true,
-        },
         ModelChoice {
             name: format!("Beluga — Sovereign Lead Architect (28L, < 295 MB RAM){beluga_tag}"),
             id: "beluga".into(),
@@ -9017,14 +8989,12 @@ async fn fetch_model_choices(options: &Options) -> Result<Vec<ModelChoice>, Stri
 }
 
 fn model_priority_rank(id: &str) -> usize {
-    if id == "blue" || id == "nioxs::blue" || id == "nio-blue" || id == "nioxs::nio-blue" {
+    if id == "beluga" || id == "nioxs::beluga" || id == "nio-beluga" || id == "nioxs::nio-beluga" {
         0
-    } else if id == "beluga" || id == "nioxs::beluga" || id == "nio-beluga" || id == "nioxs::nio-beluga" {
-        1
     } else if id == "manta" || id == "nioxs::manta" || id == "nio-manta" || id == "nioxs::nio-manta" {
-        2
+        1
     } else if id == "skate" || id == "nioxs::skate" || id == "nio-skate" || id == "nioxs::nio-skate" {
-        3
+        2
     } else if id == "nio-cuda" || id == "nioxs::nio-cuda" {
         3
     } else if id == "nio-ray" || id == "nioxs::nio-ray" {
@@ -9198,7 +9168,7 @@ async fn interactive(mut options: Options) -> Result<(), String> {
     let mut model = chosen_model(&options).await?;
     if (model.starts_with("nioxs::")
         || model.starts_with("nio-")
-        || matches!(model.as_str(), "beluga" | "manta" | "skate" | "blue"))
+        || matches!(model.as_str(), "beluga" | "manta" | "skate"))
         && let Ok((base_url, _)) = resolve_model_provider(&options, Some("nioxs"), &model)
         && (base_url.contains(":7460") || base_url == NIOXS_BASE_URL)
     {
