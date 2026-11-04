@@ -4160,10 +4160,9 @@ impl MarkdownFormatter {
 
             if self.in_code_block {
                 if self.at_line_start {
-                    let spaces = self.pending.chars().take_while(|c| *c == ' ').count();
-                    let after_spaces = &self.pending[spaces..];
+                    let ws_count = self.pending.chars().take_while(|c| *c == ' ' || *c == '\t').count();
+                    let after_spaces = &self.pending[ws_count..];
                     if !flush_partial
-                        && spaces <= 3
                         && (after_spaces.is_empty()
                             || after_spaces == "`"
                             || after_spaces == "``")
@@ -4268,8 +4267,8 @@ impl MarkdownFormatter {
             }
 
             if self.at_line_start {
-                let spaces = self.pending.chars().take_while(|c| *c == ' ').count();
-                let after_spaces = &self.pending[spaces..];
+                let ws_count = self.pending.chars().take_while(|c| *c == ' ' || *c == '\t').count();
+                let after_spaces = &self.pending[ws_count..];
                 if !flush_partial && (after_spaces == "`" || after_spaces == "``") {
                     break;
                 }
@@ -4277,7 +4276,7 @@ impl MarkdownFormatter {
                     if let Some(newline_pos) = self.pending.find('\n') {
                         let header_line = self.pending.drain(..=newline_pos).collect::<String>();
                         let lang = header_line
-                            .trim_start_matches(|c| c == ' ' || c == '`')
+                            .trim_start_matches(|c| c == ' ' || c == '\t' || c == '`')
                             .trim()
                             .to_string();
                         let lang_tag = if lang.is_empty() { "code" } else { &lang };
@@ -4298,18 +4297,30 @@ impl MarkdownFormatter {
             }
 
             if self.at_line_start {
+                let (ws_count, indent_width) = self
+                    .pending
+                    .chars()
+                    .take_while(|c| *c == ' ' || *c == '\t')
+                    .fold((0usize, 0usize), |(cnt, width), c| {
+                        (cnt + 1, width + if c == '\t' { 4 } else { 1 })
+                    });
+                let after_spaces = &self.pending[ws_count..];
+
                 if !flush_partial
-                    && self.pending.chars().all(|c| c == '#')
-                    && self.pending.len() <= 6
+                    && after_spaces.chars().all(|c| c == '#')
+                    && after_spaces.len() <= 6
+                    && !after_spaces.is_empty()
                 {
                     break;
                 }
 
-                let hash_count = self.pending.chars().take_while(|c| *c == '#').count();
+                let hash_count = after_spaces.chars().take_while(|c| *c == '#').count();
                 if hash_count >= 1 && hash_count <= 6 {
-                    if self.pending.len() > hash_count {
-                        if self.pending.chars().nth(hash_count) == Some(' ') {
-                            self.pending.drain(..=hash_count);
+                    if after_spaces.len() > hash_count {
+                        if after_spaces.chars().nth(hash_count) == Some(' ')
+                            || after_spaces.chars().nth(hash_count) == Some('\t')
+                        {
+                            self.pending.drain(..=ws_count + hash_count);
                             let level = hash_count as u8;
                             self.in_heading = Some(level);
                             output.push_str(heading_color(level));
@@ -4321,9 +4332,9 @@ impl MarkdownFormatter {
                     }
                 }
 
-                if self.pending.starts_with("---")
-                    || self.pending.starts_with("***")
-                    || self.pending.starts_with("___")
+                if after_spaces.starts_with("---")
+                    || after_spaces.starts_with("***")
+                    || after_spaces.starts_with("___")
                 {
                     if let Some(nl) = self.pending.find('\n') {
                         let candidate = self.pending[..nl].trim();
@@ -4356,8 +4367,6 @@ impl MarkdownFormatter {
                     }
                 }
 
-                let spaces = self.pending.chars().take_while(|c| *c == ' ').count();
-                let after_spaces = &self.pending[spaces..];
                 if after_spaces.is_empty() && !flush_partial {
                     break;
                 }
@@ -4387,27 +4396,33 @@ impl MarkdownFormatter {
                         .count();
                     if digits > 0
                         && (after_spaces.len() == digits
-                            || (after_spaces.len() == digits + 1 && after_spaces.ends_with('.')))
+                            || (after_spaces.len() == digits + 1
+                                && (after_spaces.ends_with('.') || after_spaces.ends_with(')'))))
                     {
                         break;
                     }
                 }
 
-                if after_spaces.starts_with("> ") {
-                    self.pending.drain(..spaces + 2);
-                    let indent = " ".repeat(spaces);
+                if after_spaces.starts_with("> ") || after_spaces.starts_with(">\t") || after_spaces.starts_with('>') {
+                    let drain_len = if after_spaces.starts_with("> ") || after_spaces.starts_with(">\t") {
+                        ws_count + 2
+                    } else {
+                        ws_count + 1
+                    };
+                    self.pending.drain(..drain_len);
+                    let indent = " ".repeat(indent_width);
                     output.push_str(&format!("{indent}\x1b[38;5;244m│ \x1b[3;38;5;250m"));
-                    self.column = self.column.saturating_add(spaces + 2);
+                    self.column = self.column.saturating_add(indent_width + 2);
                     self.in_blockquote = true;
                     self.at_line_start = false;
                     continue;
                 }
 
                 if after_spaces.starts_with("- [ ] ") || after_spaces.starts_with("* [ ] ") {
-                    self.pending.drain(..spaces + 6);
-                    let indent = " ".repeat(spaces);
+                    self.pending.drain(..ws_count + 6);
+                    let indent = " ".repeat(indent_width);
                     output.push_str(&format!("{indent}\x1b[38;5;244m☐\x1b[0m "));
-                    self.column = self.column.saturating_add(spaces + 2);
+                    self.column = self.column.saturating_add(indent_width + 2);
                     self.at_line_start = false;
                     continue;
                 }
@@ -4416,26 +4431,57 @@ impl MarkdownFormatter {
                     || after_spaces.starts_with("* [x] ")
                     || after_spaces.starts_with("* [X] ")
                 {
-                    self.pending.drain(..spaces + 6);
-                    let indent = " ".repeat(spaces);
+                    self.pending.drain(..ws_count + 6);
+                    let indent = " ".repeat(indent_width);
                     output.push_str(&format!("{indent}\x1b[32m☑\x1b[0m "));
-                    self.column = self.column.saturating_add(spaces + 2);
+                    self.column = self.column.saturating_add(indent_width + 2);
                     self.at_line_start = false;
                     continue;
                 }
 
-                if after_spaces.starts_with("- ") || after_spaces.starts_with("* ") {
-                    self.pending.drain(..spaces + 2);
-                    let indent = " ".repeat(spaces);
-                    let bullet = if spaces >= 4 {
+                let bullet_marker_len = if after_spaces.starts_with("- ")
+                    || after_spaces.starts_with("-\t")
+                    || after_spaces.starts_with("* ")
+                    || after_spaces.starts_with("*\t")
+                    || after_spaces.starts_with("+ ")
+                    || after_spaces.starts_with("+\t")
+                {
+                    Some(2)
+                } else if after_spaces.starts_with("• ") || after_spaces.starts_with("•\t") {
+                    Some('•'.len_utf8() + 1)
+                } else {
+                    None
+                };
+
+                if let Some(marker_len) = bullet_marker_len {
+                    let after_marker = &after_spaces[marker_len..];
+                    if let Some(nl_pos) = after_marker.find('\n') {
+                        if after_marker[..nl_pos].trim().is_empty() {
+                            // Empty bullet line (orphan parent like "*   \n") -> drop it
+                            self.pending.drain(..ws_count + marker_len + nl_pos + 1);
+                            self.at_line_start = true;
+                            continue;
+                        }
+                    } else if !flush_partial && after_marker.chars().all(|c| c == ' ' || c == '\t') {
+                        // Wait for next token to confirm if this bullet line has text or ends immediately
+                        break;
+                    } else if flush_partial && after_marker.trim().is_empty() {
+                        self.pending.clear();
+                        self.at_line_start = true;
+                        break;
+                    }
+
+                    self.pending.drain(..ws_count + marker_len);
+                    let indent = " ".repeat(indent_width);
+                    let bullet = if indent_width >= 4 {
                         "\x1b[38;5;244m▪\x1b[0m"
-                    } else if spaces >= 2 {
+                    } else if indent_width >= 2 {
                         "\x1b[38;5;245m◦\x1b[0m"
                     } else {
                         "\x1b[36m•\x1b[0m"
                     };
                     output.push_str(&format!("{indent}{bullet} "));
-                    self.column = self.column.saturating_add(spaces + 2);
+                    self.column = self.column.saturating_add(indent_width + 2);
                     self.at_line_start = false;
                     continue;
                 }
@@ -4444,16 +4490,143 @@ impl MarkdownFormatter {
                     .chars()
                     .take_while(|c| c.is_ascii_digit())
                     .count();
-                if digits > 0 && after_spaces[digits..].starts_with(". ") {
+                if digits > 0
+                    && (after_spaces[digits..].starts_with(". ")
+                        || after_spaces[digits..].starts_with(".\t")
+                        || after_spaces[digits..].starts_with(") ")
+                        || after_spaces[digits..].starts_with(")\t"))
+                {
                     let num = after_spaces[..digits].to_string();
-                    let drain_len = spaces + digits + 2;
+                    let drain_len = ws_count + digits + 2;
                     self.pending.drain(..drain_len);
-                    let indent = " ".repeat(spaces);
+                    let indent = " ".repeat(indent_width);
                     output.push_str(&format!("{indent}\x1b[36m{num}.\x1b[0m "));
-                    self.column = self.column.saturating_add(spaces + digits + 2);
+                    self.column = self.column.saturating_add(indent_width + digits + 2);
                     self.at_line_start = false;
                     continue;
                 }
+            }
+
+            // Inline HTML tags support: <i>, </i>, <em>, </em>, <b>, </b>, <strong>, </strong>, <code>, </code>, <br>, <br/>
+            if !self.in_inline_code && !flush_partial && self.pending.starts_with('<') {
+                let is_partial = [
+                    "<i>", "</i>", "<em>", "</em>", "<b>", "</b>", "<strong>", "</strong>",
+                    "<code>", "</code>", "<br>", "<br/>", "<br />",
+                ]
+                .iter()
+                .any(|tag| tag.starts_with(&self.pending) && tag != &self.pending);
+                if is_partial {
+                    break;
+                }
+            }
+
+            if !self.in_inline_code && (self.pending.starts_with("<i>") || self.pending.starts_with("<em>")) {
+                let tag_len = if self.pending.starts_with("<i>") { 3 } else { 4 };
+                self.pending.drain(..tag_len);
+                self.italic = true;
+                let style = "\x1b[3m";
+                if self.wrap_prose {
+                    self.word_buffer.push_str(style);
+                } else {
+                    output.push_str(style);
+                }
+                self.at_line_start = false;
+                continue;
+            }
+
+            if !self.in_inline_code && (self.pending.starts_with("</i>") || self.pending.starts_with("</em>")) {
+                let tag_len = if self.pending.starts_with("</i>") { 4 } else { 5 };
+                self.pending.drain(..tag_len);
+                self.italic = false;
+                let style = if self.in_blockquote { "\x1b[3m" } else { "\x1b[23m" };
+                if self.wrap_prose {
+                    self.word_buffer.push_str(style);
+                    self.flush_word(&mut output);
+                } else {
+                    output.push_str(style);
+                }
+                self.at_line_start = false;
+                continue;
+            }
+
+            if !self.in_inline_code && (self.pending.starts_with("<b>") || self.pending.starts_with("<strong>")) {
+                let tag_len = if self.pending.starts_with("<b>") { 3 } else { 8 };
+                self.pending.drain(..tag_len);
+                self.bold = true;
+                let style = "\x1b[1m";
+                if self.wrap_prose {
+                    self.word_buffer.push_str(style);
+                } else {
+                    output.push_str(style);
+                }
+                self.at_line_start = false;
+                continue;
+            }
+
+            if !self.in_inline_code && (self.pending.starts_with("</b>") || self.pending.starts_with("</strong>")) {
+                let tag_len = if self.pending.starts_with("</b>") { 4 } else { 9 };
+                self.pending.drain(..tag_len);
+                self.bold = false;
+                let style = if let Some(level) = self.in_heading {
+                    heading_color(level)
+                } else {
+                    "\x1b[22m"
+                };
+                if self.wrap_prose {
+                    self.word_buffer.push_str(style);
+                    self.flush_word(&mut output);
+                } else {
+                    output.push_str(style);
+                }
+                self.at_line_start = false;
+                continue;
+            }
+
+            if !self.in_inline_code && self.pending.starts_with("<code>") {
+                self.pending.drain(..6);
+                self.in_inline_code = true;
+                let style = "\x1b[38;5;222m";
+                if self.wrap_prose {
+                    self.word_buffer.push_str(style);
+                } else {
+                    output.push_str(style);
+                }
+                self.at_line_start = false;
+                continue;
+            }
+
+            if self.in_inline_code && self.pending.starts_with("</code>") {
+                self.pending.drain(..7);
+                self.in_inline_code = false;
+                let style = if let Some(level) = self.in_heading {
+                    heading_color(level)
+                } else if self.bold {
+                    "\x1b[0;1m"
+                } else {
+                    "\x1b[0m"
+                };
+                let extra = if self.italic || self.in_blockquote { "\x1b[3m" } else { "" };
+                if self.wrap_prose {
+                    self.word_buffer.push_str(style);
+                    self.word_buffer.push_str(extra);
+                    self.flush_word(&mut output);
+                } else {
+                    output.push_str(style);
+                    output.push_str(extra);
+                }
+                self.at_line_start = false;
+                continue;
+            }
+
+            if !self.in_inline_code && (self.pending.starts_with("<br>") || self.pending.starts_with("<br/>") || self.pending.starts_with("<br />")) {
+                let tag_len = if self.pending.starts_with("<br />") { 6 } else if self.pending.starts_with("<br/>") { 5 } else { 4 };
+                self.pending.drain(..tag_len);
+                self.flush_word(&mut output);
+                self.pending_spaces = 0;
+                output.push('\n');
+                self.column = RESPONSE_INDENT_WIDTH;
+                self.at_line_start = true;
+                continue;
             }
 
             if !self.in_inline_code && self.pending.starts_with('\\') {
@@ -4597,9 +4770,9 @@ impl MarkdownFormatter {
                 continue;
             }
 
-            if character == ' ' {
+            if character == ' ' || character == '\t' {
                 self.flush_word(&mut output);
-                self.pending_spaces += 1;
+                self.pending_spaces += if character == '\t' { 4 } else { 1 };
                 self.at_line_start = false;
                 continue;
             }
@@ -15117,6 +15290,63 @@ mod markdown_tests {
             fix_trailing_colon("I'll analyze the project thoroughly."),
             "I'll analyze the project thoroughly."
         );
+    }
+
+    #[test]
+    fn indented_code_fences_with_tabs_and_spaces_close_properly() {
+        let input = "1. **The Historical Context**\n     -\tThe term \"Node\":\n         ```plaintext\n\t\t\tAn environment where multiple threads execute.\n\t\t ```\n2. **Key Design Decisions**\n";
+        let mut formatter = MarkdownFormatter::new(true);
+        formatter.wrap_width = 80;
+        let mut out = String::new();
+        out.push_str(&formatter.push(input));
+        out.push_str(&formatter.finish());
+
+        // Code block must close (contain bottom border) and section 2 must NOT be inside code block
+        assert!(out.contains("└─"));
+        assert!(out.contains("\x1b[36m2.\x1b[0m \x1b[1mKey Design Decisions\x1b[22m"));
+        // Section 2 should not be prefixed with │ code block border
+        assert!(!out.contains("│ 2."));
+    }
+
+    #[test]
+    fn html_tags_render_as_ansi_styles_and_do_not_leak_angle_brackets() {
+        let input = "• <i>Why does one not simply say:</i>\n  > \"Node.js is runtime\"\n<b>Important</b> and <code>var x = 1;</code><br/>Next line\n";
+        let mut formatter = MarkdownFormatter::new(true);
+        formatter.wrap_width = 80;
+        let mut out = String::new();
+        out.push_str(&formatter.push(input));
+        out.push_str(&formatter.finish());
+
+        // HTML tags should be replaced with ANSI styles, not raw literal tags
+        assert!(!out.contains("<i>"));
+        assert!(!out.contains("</i>"));
+        assert!(!out.contains("<b>"));
+        assert!(!out.contains("</b>"));
+        assert!(!out.contains("<code>"));
+        assert!(!out.contains("</code>"));
+        assert!(!out.contains("<br/>"));
+        assert!(out.contains("\x1b[3mWhy does one not simply say:\x1b[23m"));
+        assert!(out.contains("\x1b[1mImportant\x1b[22m"));
+        assert!(out.contains("\x1b[38;5;222mvar x = 1;\x1b[0m"));
+    }
+
+    #[test]
+    fn empty_parent_bullets_and_tabbed_bullets_render_cleanly() {
+        let input = "Axiom:\n\n*   \n    *   Why does \"Node\" exist?\n    *   How does it differ?\n";
+        let mut formatter = MarkdownFormatter::new(true);
+        formatter.wrap_width = 80;
+        let mut out = String::new();
+        out.push_str(&formatter.push(input));
+        out.push_str(&formatter.finish());
+
+        let plain = strip_terminal_ansi(&out);
+        // Should not have a lone empty bullet on its own line
+        for line in plain.lines() {
+            let trimmed = line.trim();
+            assert_ne!(trimmed, "•", "found lone bullet on line: {line:?}");
+            assert_ne!(trimmed, "• ", "found lone bullet on line: {line:?}");
+        }
+        assert!(out.contains("Why does \"Node\" exist?"));
     }
 }
 
