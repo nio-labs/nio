@@ -3664,6 +3664,7 @@ struct MarkdownFormatter {
     wrap_prose: bool,
     column: usize,
     in_code_block: bool,
+    in_plaintext_block: bool,
     in_inline_code: bool,
     in_heading: Option<u8>,
     in_blockquote: bool,
@@ -3938,6 +3939,7 @@ impl MarkdownFormatter {
             wrap_prose: true,
             column: RESPONSE_INDENT_WIDTH,
             in_code_block: false,
+            in_plaintext_block: false,
             in_inline_code: false,
             in_heading: None,
             in_blockquote: false,
@@ -3962,6 +3964,7 @@ impl MarkdownFormatter {
             } else {
                 0
             };
+            self.pending_spaces = 0;
             if self.column > RESPONSE_INDENT_WIDTH
                 && self
                     .column
@@ -3971,7 +3974,6 @@ impl MarkdownFormatter {
             {
                 output.push('\n');
                 self.column = RESPONSE_INDENT_WIDTH;
-                self.pending_spaces = 0;
                 if self.bold
                     || (self.word_buffer.contains("\x1b[22m")
                         && !self.word_buffer.contains("\x1b[1m"))
@@ -3993,13 +3995,13 @@ impl MarkdownFormatter {
                 if let Some(level) = self.in_heading {
                     output.push_str(heading_color(level));
                 }
-                if self.in_blockquote {
-                    output.push_str("\x1b[3;38;5;250m");
+                if self.in_blockquote || self.in_plaintext_block {
+                    output.push_str("\x1b[38;5;244m│ \x1b[3;38;5;250m");
+                    self.column = self.column.saturating_add(2);
                 }
             } else if space_cells > 0 {
                 output.push_str(&" ".repeat(space_cells));
                 self.column = self.column.saturating_add(space_cells);
-                self.pending_spaces = 0;
             }
         } else if self.pending_spaces > 0 {
             output.push_str(&" ".repeat(self.pending_spaces));
@@ -4062,9 +4064,10 @@ impl MarkdownFormatter {
         if let Some(_) = self.in_heading.take() {
             output.push_str("\x1b[0m");
         }
-        if self.in_blockquote {
+        if self.in_blockquote || self.in_plaintext_block {
             output.push_str("\x1b[0m");
             self.in_blockquote = false;
+            self.in_plaintext_block = false;
         }
         if self.bold {
             output.push_str("\x1b[22m");
@@ -4155,6 +4158,41 @@ impl MarkdownFormatter {
                         self.pending.drain(..=newline_pos);
                         continue;
                     }
+                }
+            }
+
+            if self.in_plaintext_block {
+                if self.at_line_start {
+                    let ws_count = self.pending.chars().take_while(|c| *c == ' ' || *c == '\t').count();
+                    let after_spaces = &self.pending[ws_count..];
+                    if !flush_partial && (after_spaces == "`" || after_spaces == "``") {
+                        break;
+                    }
+                    if after_spaces.starts_with("```") {
+                        if let Some(newline_pos) = self.pending.find('\n') {
+                            self.pending.drain(..=newline_pos);
+                            self.flush_word(&mut output);
+                            self.in_plaintext_block = false;
+                            self.at_line_start = true;
+                            output.push_str("\x1b[0m");
+                            continue;
+                        } else if flush_partial {
+                            self.pending.clear();
+                            self.flush_word(&mut output);
+                            self.in_plaintext_block = false;
+                            self.at_line_start = true;
+                            output.push_str("\x1b[0m");
+                            break;
+                        } else {
+                            break;
+                        }
+                    }
+
+                    self.pending.drain(..ws_count);
+                    let indent = " ".repeat(ws_count.min(4));
+                    output.push_str(&format!("{indent}\x1b[38;5;244m│ \x1b[3;38;5;250m"));
+                    self.column = RESPONSE_INDENT_WIDTH + ws_count.min(4) + 2;
+                    self.at_line_start = false;
                 }
             }
 
@@ -4279,6 +4317,12 @@ impl MarkdownFormatter {
                             .trim_start_matches(|c| c == ' ' || c == '\t' || c == '`')
                             .trim()
                             .to_string();
+                        let is_plaintext = lang.to_ascii_lowercase() == "plaintext";
+                        if is_plaintext {
+                            self.in_plaintext_block = true;
+                            self.at_line_start = true;
+                            continue;
+                        }
                         let lang_tag = if lang.is_empty() { "code" } else { &lang };
                         self.in_code_block = true;
                         let width = code_block_width(self.wrap_width);
@@ -7421,7 +7465,7 @@ async fn run_agent_turn_inner(
     };
     let system_content = if is_local_microlm {
         if matches!(model_id, "beluga" | "nio-beluga") {
-            let base = "You are Beluga, Nio's Flagship Sovereign Cognitive Companion. You think before speaking using <think>...</think> tags. Close your thoughts with </think> once before providing the final answer, and never repeat thought tags. Reason deeply, verify edge cases, and deliver clear, authoritative architectural solutions.";
+            let base = "You are Beluga, Nio's Flagship Sovereign Cognitive Companion. You think before speaking using <think>...</think> tags. Close your thoughts with </think> once before providing the final answer, and never repeat thought tags. Reason deeply, verify edge cases, and deliver clear, authoritative architectural solutions. Format definitions and explanations directly in natural prose or Markdown blockquotes (>), never wrap plain text definitions in ```plaintext code blocks. Reserve code blocks strictly for executable code.";
             if attach_tools {
                 format!("{base}{overview}{tool_instructions}\n\nOnly call tools when project files or execution are strictly required.")
             } else {
@@ -15294,18 +15338,38 @@ mod markdown_tests {
 
     #[test]
     fn indented_code_fences_with_tabs_and_spaces_close_properly() {
-        let input = "1. **The Historical Context**\n     -\tThe term \"Node\":\n         ```plaintext\n\t\t\tAn environment where multiple threads execute.\n\t\t ```\n2. **Key Design Decisions**\n";
+        let input = "1. **The Historical Context**\n     -\tThe term \"Node\":\n         ```rust\n\t\t\tlet x = 1;\n\t\t ```\n2. **Key Design Decisions**\n";
         let mut formatter = MarkdownFormatter::new(true);
         formatter.wrap_width = 80;
         let mut out = String::new();
         out.push_str(&formatter.push(input));
         out.push_str(&formatter.finish());
 
-        // Code block must close (contain bottom border) and section 2 must NOT be inside code block
+        // Real code block must close (contain bottom border) and section 2 must NOT be inside code block
         assert!(out.contains("└─"));
         assert!(out.contains("\x1b[36m2.\x1b[0m \x1b[1mKey Design Decisions\x1b[22m"));
         // Section 2 should not be prefixed with │ code block border
         assert!(!out.contains("│ 2."));
+    }
+
+    #[test]
+    fn plaintext_code_block_renders_as_quote_without_code_box_or_space_leaks() {
+        let input = "```plaintext\nAn environment where multiple threads execute concurrently.\n```\n        This definition alone excludes many modern VMs.\n";
+        let mut formatter = MarkdownFormatter::new(true);
+        formatter.wrap_width = 80;
+        let mut out = String::new();
+        out.push_str(&formatter.push(input));
+        out.push_str(&formatter.finish());
+
+        // Plaintext should NOT render a code block box or "plaintext" label
+        assert!(!out.contains("┌─ plaintext"));
+        assert!(!out.contains("└─"));
+        // It should render as a clean quote bar
+        assert!(out.contains("│"));
+        assert!(out.contains("An environment where multiple threads execute concurrently."));
+        // "This definition" should NOT have 9 spaces between "This" and "definition"
+        assert!(!out.contains("This         definition"));
+        assert!(out.contains("This definition alone"));
     }
 
     #[test]
