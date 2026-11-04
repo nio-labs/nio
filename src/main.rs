@@ -2735,6 +2735,73 @@ fn strip_leaked_tool_calls(text: &mut String) {
     }
 }
 
+fn strip_stray_thought_tags(text: &mut String) {
+    let search_from = if let Some(open_idx) = text
+        .find("<thinking>")
+        .or_else(|| text.find("<thought>"))
+        .or_else(|| text.find("<think>"))
+    {
+        let open_len = if text[open_idx..].starts_with("<thinking>") {
+            10
+        } else if text[open_idx..].starts_with("<thought>") {
+            9
+        } else {
+            7
+        };
+        let after_open = open_idx + open_len;
+        if let Some(close_rel) = text[after_open..]
+            .find("</thinking>")
+            .or_else(|| text[after_open..].find("</thought>"))
+            .or_else(|| text[after_open..].find("</think>"))
+        {
+            let close_len = if text[after_open + close_rel..].starts_with("</thinking>") {
+                11
+            } else if text[after_open + close_rel..].starts_with("</thought>") {
+                10
+            } else {
+                8
+            };
+            after_open + close_rel + close_len
+        } else {
+            text.len()
+        }
+    } else {
+        0
+    };
+
+    if search_from < text.len() {
+        let mut tail = text[search_from..].to_string();
+        for tag in [
+            "</thinking>",
+            "</thought>",
+            "</think>",
+            "<thinking>",
+            "<thought>",
+            "<think>",
+            "</node>",
+            "<|im_end|>",
+            "<|im_start|>",
+            "<|endoftext|>",
+        ] {
+            tail = tail.replace(tag, "");
+        }
+        let trimmed_tail = tail.trim_end();
+        let cleaned_tail = if trimmed_tail.ends_with("\n*")
+            || trimmed_tail == "*"
+            || trimmed_tail.ends_with("\n-")
+            || trimmed_tail == "-"
+        {
+            trimmed_tail
+                .trim_end_matches(['*', '-', ' ', '\t'])
+                .trim_end_matches('\n')
+        } else {
+            tail.as_str()
+        };
+        text.truncate(search_from);
+        text.push_str(cleaned_tail);
+    }
+}
+
 fn ask_user_retry_unparseable_tool(options: &Options) -> Result<bool, String> {
     if options.json_output || !io::stdin().is_terminal() {
         return Ok(false);
@@ -4882,6 +4949,13 @@ fn emit_stream_content(
                         "<thinking",
                         "<thought",
                         "<think",
+                        "</thinking",
+                        "</thought",
+                        "</think",
+                        "</node",
+                        "<|im_end",
+                        "<|im_start",
+                        "<|endoftext",
                     ] {
                         if tail.starts_with(prefix) || prefix.starts_with(tail) {
                             leak_start = Some(check_from + idx);
@@ -4893,7 +4967,16 @@ fn emit_stream_content(
                     }
                     check_from += idx + 1;
                 }
-                let allowed_len = leak_start.unwrap_or(content_slice.len());
+                let allowed_len = if let Some(mut start) = leak_start {
+                    let pre = &content_slice[..start];
+                    let trimmed = pre.trim_end_matches([' ', '\t']);
+                    if trimmed.ends_with("\n*") || trimmed.ends_with("\n-") || trimmed == "*" || trimmed == "-" {
+                        start = trimmed.len() - 1;
+                    }
+                    start
+                } else {
+                    content_slice.len()
+                };
                 if allowed_len > *emitted_len {
                     let to_emit = &content_slice[*emitted_len..allowed_len];
                     let formatted = formatter.push(to_emit);
@@ -4945,6 +5028,13 @@ fn emit_stream_content(
                 "<thinking",
                 "<thought",
                 "<think",
+                "</thinking",
+                "</thought",
+                "</think",
+                "</node",
+                "<|im_end",
+                "<|im_start",
+                "<|endoftext",
             ] {
                 if tail.starts_with(prefix) || prefix.starts_with(tail) {
                     leak_start = Some(check_from + idx);
@@ -4957,7 +5047,16 @@ fn emit_stream_content(
             check_from += idx + 1;
         }
 
-        let allowed_len = leak_start.unwrap_or(answer.len());
+        let allowed_len = if let Some(mut start) = leak_start {
+            let pre = &answer[..start];
+            let trimmed = pre.trim_end_matches([' ', '\t']);
+            if trimmed.ends_with("\n*") || trimmed.ends_with("\n-") || trimmed == "*" || trimmed == "-" {
+                start = trimmed.len() - 1;
+            }
+            start
+        } else {
+            answer.len()
+        };
         if allowed_len > *emitted_len {
             let to_emit = &answer[*emitted_len..allowed_len];
             let formatted = formatter.push(to_emit);
@@ -7115,7 +7214,7 @@ async fn run_agent_turn_inner(
     };
     let system_content = if is_local_microlm {
         if matches!(model_id, "beluga" | "nio-beluga") {
-            let base = "You are Beluga, Nio's Flagship Sovereign Cognitive Companion. You think before speaking using <think>...</think> tags. Reason deeply, verify edge cases, and deliver clear, authoritative architectural solutions.";
+            let base = "You are Beluga, Nio's Flagship Sovereign Cognitive Companion. You think before speaking using <think>...</think> tags. Close your thoughts with </think> once before providing the final answer, and never repeat thought tags. Reason deeply, verify edge cases, and deliver clear, authoritative architectural solutions.";
             if attach_tools {
                 format!("{base}{overview}{tool_instructions}\n\nOnly call tools when project files or execution are strictly required.")
             } else {
@@ -7737,6 +7836,7 @@ async fn run_agent_turn_inner(
                 );
             }
         }
+        strip_stray_thought_tags(&mut answer);
         if calls.is_empty() && !response_started && !answer.trim().is_empty() {
             let mut flush_formatter =
                 MarkdownFormatter::new(!options.json_output && io::stdout().is_terminal());
