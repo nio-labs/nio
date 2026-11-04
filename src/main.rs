@@ -2736,7 +2736,7 @@ fn strip_leaked_tool_calls(text: &mut String) {
 }
 
 fn strip_stray_thought_tags(text: &mut String) {
-    let search_from = if let Some(open_idx) = text
+    let (thought_content, after_close) = if let Some(open_idx) = text
         .find("<thinking>")
         .or_else(|| text.find("<thought>"))
         .or_else(|| text.find("<think>"))
@@ -2761,13 +2761,30 @@ fn strip_stray_thought_tags(text: &mut String) {
             } else {
                 8
             };
-            after_open + close_rel + close_len
+            (
+                Some(text[after_open..after_open + close_rel].to_string()),
+                after_open + close_rel + close_len,
+            )
         } else {
-            text.len()
+            (None, text.len())
         }
     } else {
-        0
+        (None, 0)
     };
+
+    if let Some(thought) = thought_content {
+        let remainder = if text.len() > after_close {
+            text[after_close..].trim()
+        } else {
+            ""
+        };
+        if remainder.is_empty() {
+            *text = thought;
+            return;
+        }
+    }
+
+    let search_from = after_close;
 
     if search_from < text.len() {
         let mut tail = text[search_from..].to_string();
@@ -4975,11 +4992,6 @@ fn emit_stream_content(
                     emit_thinking(options, to_emit)?;
                 }
                 *emitted_thinking_len = close_pos;
-            }
-
-            if !*response_started {
-                emit_assistant_start(options)?;
-                *response_started = true;
             }
 
             if answer.len() > after_close {
@@ -7824,10 +7836,15 @@ async fn run_agent_turn_inner(
                     8
                 };
                 let after_close = after_open + close_rel + close_len;
-                if answer.len() > after_close {
+                let post_thought = if answer.len() > after_close {
                     &answer[after_close..]
                 } else {
                     ""
+                };
+                if post_thought.trim().is_empty() {
+                    &answer[after_open..after_open + close_rel]
+                } else {
+                    post_thought
                 }
             } else {
                 ""
