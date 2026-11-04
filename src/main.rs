@@ -4016,7 +4016,7 @@ impl MarkdownFormatter {
 
     fn push(&mut self, text: &str) -> String {
         if !self.enabled {
-            return text.to_string();
+            return self.visible_output(text.to_string());
         }
         self.pending.push_str(text);
         let output = self.drain(false);
@@ -4039,7 +4039,7 @@ impl MarkdownFormatter {
 
     fn finish(&mut self) -> String {
         if !self.enabled {
-            return std::mem::take(&mut self.pending);
+            return String::new();
         }
         let mut output = self.drain(true);
         self.flush_word(&mut output);
@@ -7947,8 +7947,7 @@ async fn run_agent_turn_inner(
         }
         let mut answer = String::new();
         let mut response_started = false;
-        let mut formatter =
-            MarkdownFormatter::new(!options.json_output && io::stdout().is_terminal());
+        let mut formatter = MarkdownFormatter::new(false);
         let mut pending_tools = std::collections::BTreeMap::<usize, PendingToolCall>::new();
         let content_type = response
             .headers()
@@ -8149,8 +8148,7 @@ async fn run_agent_turn_inner(
         }
         strip_stray_thought_tags(&mut answer);
         if calls.is_empty() && !response_started && !answer.trim().is_empty() {
-            let mut flush_formatter =
-                MarkdownFormatter::new(!options.json_output && io::stdout().is_terminal());
+            let mut flush_formatter = MarkdownFormatter::new(false);
             let formatted = flush_formatter.push(&answer);
             let tail = flush_formatter.finish();
             let full = format!("{formatted}{tail}");
@@ -9793,7 +9791,7 @@ fn recent_session_lines(history: &[Value], width: usize, row_budget: usize) -> V
                 format!("\x1b[36m{content}\x1b[0m"),
             ),
             Some("assistant") => {
-                let mut formatter = MarkdownFormatter::new(true);
+                let mut formatter = MarkdownFormatter::new(false);
                 formatter.wrap_width = width.saturating_sub(1).max(RESPONSE_INDENT_WIDTH + 2);
                 let mut formatted = formatter.push(&content);
                 formatted.push_str(&formatter.finish());

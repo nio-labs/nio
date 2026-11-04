@@ -86,7 +86,7 @@ fn chat_rows(entry: &Entry, width: usize, persona_name: &str) -> Vec<String> {
         .saturating_sub(1 + terminal_text_width(&prefix))
         .max(1);
     let text = if is_assistant {
-        let mut formatter = MarkdownFormatter::new(true);
+        let mut formatter = MarkdownFormatter::new(false);
         formatter.wrap_width = content_width + RESPONSE_INDENT_WIDTH;
         formatter.wrap_prose = false;
         let mut text = formatter.push(&entry.text);

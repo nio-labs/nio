@@ -393,7 +393,7 @@ impl Live {
     fn stream(&mut self, text: &str) -> Result<(), String> {
         let formatted = self
             .formatter
-            .get_or_insert_with(|| MarkdownFormatter::new(true))
+            .get_or_insert_with(|| MarkdownFormatter::new(false))
             .push(text);
         self.append_formatted(&formatted, false)
     }
